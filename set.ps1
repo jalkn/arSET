@@ -42,6 +42,7 @@ Set-Content -Path "core/models.py" -Value @"
 "@
 
 Set-Content -Path "core/views.py" -Value @"
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -95,6 +96,25 @@ class ImportView(LoginRequiredMixin, TemplateView):
 @login_required
 def main(request):
     return render(request, 'home.html')
+
+def import_period_excel(request):
+    """View for importing period data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('period_excel_file'):
+        excel_file = request.FILES['period_excel_file']
+        try:
+            # Save the uploaded file to the desired location
+            temp_path = "core/src/periodoBR.xlsx"
+            with open(temp_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            messages.success(request, 'Archivo de periodos importado exitosamente!')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de periodos: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
 "@
 
 # Create admin.py with enhanced configuration
@@ -147,7 +167,8 @@ urlpatterns = [
     path('', views.main, name='main'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', register_superuser, name='register'),
-    path('import/', ImportView.as_view(), name='import'), 
+    path('import/', ImportView.as_view(), name='import'),
+    path('import-period/', views.import_period_excel, name='import_period_excel'),
 ]
 "@
 
@@ -706,7 +727,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃƒÂ³n">
             <i class="fas fa-sign-out-alt"></i>
         </button>
     </form>
@@ -738,7 +759,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="col-md-4 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_period_excel' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="period_excel_file" name="period_excel_file" required>
@@ -843,7 +864,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <!-- Add password input field -->
                         <div class="mb-3">
                             <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password" placeholder="Clave">
-                            <div class="form-text">Ingrese la contraseña si los PDFs están protegidos</div>
+                            <div class="form-text">Ingrese la contraseÃ±a si los PDFs estÃ¡n protegidos</div>
                         </div>
                         <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar VISA</button>
                     </form>
