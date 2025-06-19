@@ -46,6 +46,8 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import TemplateView
 
 # The 'main' view is now a simple redirect to login if not authenticated, or a placeholder page if authenticated.
 @login_required
@@ -81,6 +83,18 @@ def register_superuser(request):
             return redirect('register')
 
     return render(request, 'registration/register.html')
+
+class ImportView(LoginRequiredMixin, TemplateView):
+    template_name = 'import.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Add any additional context data you need
+        return context
+    
+@login_required
+def main(request):
+    return render(request, 'home.html')
 "@
 
 # Create admin.py with enhanced configuration
@@ -95,6 +109,9 @@ from . import views
 from django.contrib.auth import get_user_model
 from django.contrib import messages
 from django.shortcuts import render, redirect
+from django.urls import path
+from django.contrib.auth import views as auth_views
+from .views import main, register_superuser, ImportView  
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -130,8 +147,8 @@ urlpatterns = [
     path('', views.main, name='main'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', register_superuser, name='register'),
+    path('import/', ImportView.as_view(), name='import'), 
 ]
-
 "@
 
 # Update project urls.py with proper admin configuration
@@ -337,6 +354,68 @@ body {
 
 "@ | Out-File -FilePath "core/static/css/style.css" -Encoding utf8
 
+@"
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 9999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.loading-content {
+    background-color: white;
+    padding: 30px;
+    border-radius: 8px;
+    text-align: center;
+    max-width: 500px;
+    width: 90%;
+}
+
+.progress {
+    height: 20px;
+    margin: 20px 0;
+}
+
+/* Spinner styles for submit buttons */
+.btn .spinner-border {
+    margin-right: 8px;
+}
+"@ | Out-File -FilePath "core/static/css/loading.css" -Encoding utf8
+
+# Create loading.js
+@"
+document.addEventListener('DOMContentLoaded', function() {
+    // Get all forms that should show loading
+    const forms = document.querySelectorAll('form');
+    
+    forms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            // Only show loading for forms that aren't the search form
+            if (!form.classList.contains('no-loading')) {
+                // Show loading overlay
+                const loadingOverlay = document.getElementById('loadingOverlay');
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'flex';
+                }
+                
+                // Optional: Disable submit button to prevent double submission
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
+                }
+            }
+        });
+    });
+});
+"@ | Out-File -FilePath "core/static/js/loading.js" -Encoding utf8
+
 # Create custom admin base template
 @"
 {% extends "admin/base.html" %}
@@ -361,7 +440,6 @@ body {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
-    <link rel="stylesheet" href="{% static 'css/freeze.css' %}">
 </head>
 <body>
     {% if user.is_authenticated %}
@@ -375,12 +453,12 @@ body {
             <a href="/admin/" class="btn btn-outline-dark" title="Admin">
                 <i class="fas fa-wrench"></i>
             </a>
-            <a href="/persons/import/" class="btn btn-custom-primary" title="Importar">
+            <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
                 <i class="fas fa-database"></i>
             </a>
             <form method="post" action="{% url 'logout' %}" class="d-inline">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-custom-primary" title="Cerrar sesión">
+                <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
                     <i class="fas fa-sign-out-alt"></i>
                 </button>
             </form>
@@ -407,6 +485,58 @@ body {
 </body>
 </html>
 "@ | Out-File -FilePath "core/templates/master.html" -Encoding utf8
+
+# Create home template
+@"
+{% extends "master.html" %}
+
+{% block title %}A R P A{% endblock %}
+{% block navbar_title %}Dashboard{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="/persons/" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="/finance/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="/conflicts/" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="/alerts/" class="btn btn-custom-primary">
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃƒÂ³n">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-0 shadow">
+            <div class="card-body p-5">
+                <div style="align-items: center; text-align: center;"> 
+                    <h5 class="card-title">Bienvenido a ARPA</h5>
+                    <p class="card-text">Automatizacion Robotica de Procesos de Auditoria</p>
+                    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+                        <i class="fas fa-upload"></i> 
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/home.html" -Encoding utf8
 
 # Create login template
 @"
@@ -549,6 +679,258 @@ body {
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/registration/register.html" -Encoding utf8
+
+# Create import template
+@"
+{% extends "master.html" %}
+
+{% block title %}Importar desde Excel{% endblock %}
+{% block navbar_title %}Importar Datos{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="/persons/" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="/finance/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="/conflicts/" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="/alerts/" class="btn btn-custom-primary">
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+{% load static %}
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+        <h4>Procesando datos...</h4>
+        <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                 role="progressbar" 
+                 style="width: 100%"></div>
+        </div>
+        <p>Por favor espere, esto puede tomar unos segundos.</p>
+    </div>
+</div>
+
+<!-- Add loading CSS -->
+<link rel="stylesheet" href="{% static 'css/loading.css' %}">
+
+<!-- Add loading JS -->
+<script src="{% static 'js/loading.js' %}"></script>
+
+<div class="row">
+    <!-- First row with 3 cards -->
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="period_excel_file" name="period_excel_file" required>
+                        <div class="form-text">El archivo Excel de Periodos debe incluir las columnas: Id, Activo, FechaFinDeclaracion, FechaInicioDeclaracion, Ano declaracion</div>
+                    </div>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Periodos</button>
+                </form>
+            </div>
+            {% for message in messages %}
+                {% if 'import_period_excel' in message.tags %}
+                <div class="card-footer">
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data"> 
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="excel_file" name="excel_file" required>
+                        <div class="form-text">El archivo Excel de Personas debe incluir las columnas: Id, NOMBRE COMPLETO, CARGO, Cedula, Correo, Compania, Estado</div>
+                    </div>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Personas</button>
+                </form>
+            </div>
+            {% for message in messages %}
+                {% if 'import_persons' in message.tags %}
+                <div class="card-footer">
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="conflict_excel_file" name="conflict_excel_file" required>
+                        <div class="form-text">'ID', 'Cedula', 'Nombre', 'Compania', 'Cargo', 'Email', 'Fecha de Inicio', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11' </div>
+                    </div>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Conflictos</button>
+                </form>
+            </div>
+            {% for message in messages %}
+                {% if 'import_conflict_excel' in message.tags %}
+                <div class="card-footer">
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left column with 3 import forms in a single card -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body d-flex flex-column">
+                <!-- Bienes y Rentas -->
+                <div class="mb-4 flex-grow-1">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
+                            <div class="form-text">El archivo Excel de Bienes y Rentas debe incluir las columnas: </div>
+                            <div class="mb-3">
+                                <input type="password" class="form-control" id="excel_password" name="excel_password">
+                                <div class="form-text">Ingrese la contrasena</div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Bienes y Rentas</button>
+                    </form>
+                </div>
+
+                <!-- Visa -->
+                <div class="flex-grow-1">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple webkitdirectory directory required>
+                            <div class="form-text">Seleccione la carpeta con los PDFs de VISA</div>
+                        </div>
+                        <!-- Add password input field -->
+                        <div class="mb-3">
+                            <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password" placeholder="Clave">
+                            <div class="form-text">Ingrese la contraseña si los PDFs están protegidos</div>
+                        </div>
+                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar VISA</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Messages for all three forms -->
+            {% for message in messages %}
+                {% if 'import_protected_excel' in message.tags or 'import_visa_pdfs' in message.tags %}
+                <div class="card-footer">
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Right column with analysis results -->
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Resultados del Analisis</h5>
+            </div>
+            <div class="card-body">
+                {% if analysis_results %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Archivo Generado</th>
+                                <th>Registros</th>
+                                <th>Estado</th>
+                                <th>Ultima Actualizacion</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in analysis_results %}
+                            <tr>
+                                <td>{{ result.filename }}</td>
+                                <td>{{ result.records|default:"-" }}</td>
+                                <td>
+                                    <span class="badge bg-{% if result.status == 'success' %}success{% elif result.status == 'error' %}danger{% else %}secondary{% endif %}">
+                                        {% if result.status == 'success' %}
+                                            Exitoso
+                                        {% elif result.status == 'pending' %}
+                                            Pendiente
+                                        {% elif result.status == 'error' %}
+                                            Error
+                                        {% else %}
+                                            {{ result.status|capfirst }}
+                                        {% endif %}
+                                    </span>
+                                    {% if result.status == 'error' and result.error %}
+                                    <small class="text-muted d-block">{{ result.error }}</small>   
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if result.last_updated %}
+                                    {{ result.last_updated|date:"d/m/Y H:i" }}
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-info-circle fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No hay resultados de analisis disponibles</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Los archivos se procesan en: core/src/</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/import.html" -Encoding utf8
+
 
     # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
