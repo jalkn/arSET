@@ -1,0 +1,11 @@
+*.pyc
+__pycache__
+.venv
+.env
+.vscode
+.DS_store
+arpa/
+colName.py
+db.mmd
+DBcommands.txt
+run.ps1
