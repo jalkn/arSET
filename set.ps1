@@ -66,6 +66,68 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
+from django.core.paginator import Paginator
+from django.shortcuts import render
+from core.models import Person
+from django.db.models import Count
+from django.db.models import Q
+
+def person_list(request):
+    # Get all filter parameters from the request
+    search_query = request.GET.get('q', '')
+    status_filter = request.GET.get('status', '')
+    cargo_filter = request.GET.get('cargo', '')
+    compania_filter = request.GET.get('compania', '')
+    
+    # Get sorting parameters
+    order_by = request.GET.get('order_by', 'nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    # Start with all persons
+    persons = Person.objects.all()
+    
+    # Apply filters
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+    
+    if status_filter:
+        persons = persons.filter(estado=status_filter)
+    
+    if cargo_filter:
+        persons = persons.filter(cargo=cargo_filter)
+    
+    if compania_filter:
+        persons = persons.filter(compania=compania_filter)
+    
+    # Apply sorting
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+    
+    # Get unique values for filters
+    cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    
+    # Pagination
+    paginator = Paginator(persons, 25)  # Show 25 persons per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Prepare context for template
+    context = {
+        'persons': page_obj,
+        'page_obj': page_obj,
+        'cargos': cargos,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'persons.html', context)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -222,7 +284,7 @@ from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
-from .views import main, register_superuser, ImportView  
+from .views import main, register_superuser, ImportView, person_list
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -261,6 +323,7 @@ urlpatterns = [
     path('import/', ImportView.as_view(), name='import'),
     path('import-period/', views.import_period, name='import_period'),
     path('import-persons/', views.import_persons, name='import_persons'),
+    path('persons/', views.person_list, name='person_list')
 ]
 "@
 
@@ -277,9 +340,9 @@ admin.site.index_title = 'Bienvenido a A R P A'
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('persons/', include('core.urls')),
-    path('accounts/', include('django.contrib.auth.urls')),  
     path('', include('core.urls')), 
+    path('accounts/', include('django.contrib.auth.urls')),  
+    
 ]
 "@
 
@@ -571,7 +634,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </a>
             <form method="post" action="{% url 'logout' %}" class="d-inline">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+                <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
                     <i class="fas fa-sign-out-alt"></i>
                 </button>
             </form>
@@ -608,7 +671,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
     <a href="" class="btn btn-custom-primary">
@@ -620,12 +683,15 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="/alerts/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-upload"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃƒÂ³n">
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
             <i class="fas fa-sign-out-alt"></i>
         </button>
     </form>
@@ -640,9 +706,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="align-items: center; text-align: center;"> 
                     <h5 class="card-title">Bienvenido a ARPA</h5>
                     <p class="card-text">Automatizacion Robotica de Procesos de Auditoria</p>
-                    <a href="{% url 'import' %}" class="btn btn-custom-primary">
-                        <i class="fas fa-upload"></i> 
-                    </a>
                 </div>
             </div>
         </div>
@@ -802,7 +865,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
     <a href="" class="btn btn-custom-primary">
@@ -819,7 +882,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃƒÂ³n">
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
             <i class="fas fa-sign-out-alt"></i>
         </button>
     </form>
@@ -956,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <!-- Add password input field -->
                         <div class="mb-3">
                             <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password" placeholder="Clave">
-                            <div class="form-text">Ingrese la contraseÃ±a si los PDFs estÃ¡n protegidos</div>
+                            <div class="form-text">Ingrese la contraseÃƒÂ±a si los PDFs estÃƒÂ¡n protegidos</div>
                         </div>
                         <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar VISA</button>
                     </form>
@@ -1043,6 +1106,233 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/import.html" -Encoding utf8
+
+# Create persons template
+@"
+{% extends "master.html" %}
+{% load static %}
+
+{% block title %}A R P A{% endblock %}
+{% block navbar_title %}A R P A{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="" class="btn btn-custom-primary" title="BienesyRentas">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Conflictos">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% endif %}
+        {% if alerts_count == 0 %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-upload"></i> 
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search Form -->
+<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+    <div class="card-body">
+        <form method="get" action="." class="row g-3 align-items-center">
+            <!-- General Search -->
+            <div class="col-md-4">
+                <input type="text" 
+                       name="q" 
+                       class="form-control form-control-lg" 
+                       placeholder="Buscar persona..." 
+                       value="{{ request.GET.q }}">
+            </div>
+            
+            <!-- Status Filter -->
+            <div class="col-md-2">
+                <select name="status" class="form-select form-select-lg">
+                    <option value="">Estado</option>
+                    <option value="Activo" {% if request.GET.status == 'Activo' %}selected{% endif %}>Activo</option>
+                    <option value="Retirado" {% if request.GET.status == 'Retirado' %}selected{% endif %}>Retirado</option>
+                </select>
+            </div>
+            
+            <!-- Cargo Filter -->
+            <div class="col-md-2">
+                <select name="cargo" class="form-select form-select-lg">
+                    <option value="">Cargo</option>
+                    {% for cargo in cargos %}
+                        <option value="{{ cargo }}" {% if request.GET.cargo == cargo %}selected{% endif %}>{{ cargo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Compania Filter -->
+            <div class="col-md-2">
+                <select name="compania" class="form-select form-select-lg">
+                    <option value="">Compania</option>
+                    {% for compania in companias %}
+                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Persons Table -->
+<div class="card border-0 shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive table-container">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-fixed-header">
+                    <tr>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Revisar
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                ID
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Nombre
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Correo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compania
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Estado
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for person in persons %}
+                        <tr {% if person.revisar %}class="table-warning"{% endif %}>
+                            <td>
+                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                    <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                </a>
+                            </td>
+                            <td>{{ person.cedula }}</td>
+                            <td>{{ person.nombre_completo }}</td>
+                            <td>{{ person.cargo }}</td>
+                            <td>{{ person.correo }}</td>
+                            <td>{{ person.compania }}</td>
+                            <td>
+                                <span class="badge bg-{% if person.estado == 'Activo' %}success{% else %}danger{% endif %}">
+                                    {{ person.estado }}
+                                </span>
+                            </td>
+                            <td>{{ person.comments|truncatechars:30|default:"" }}</td>
+                            <td class="table-fixed-column">
+                                <a href="" 
+                                   class="btn btn-custom-primary btn-sm"
+                                   title="View details">
+                                    <i class="bi bi-person-vcard-fill"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center py-4">
+                                {% if request.GET.q or request.GET.status or request.GET.cargo or request.GET.compania %}
+                                    Sin registros que coincidan con los filtros.
+                                {% else %}
+                                    Sin registros
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+        <div class="p-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                                <span aria-hidden="true">&laquo;&laquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                                <span aria-hidden="true">&raquo;&raquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/persons.html" -Encoding utf8
 
     # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
