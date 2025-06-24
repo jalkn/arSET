@@ -56,6 +56,26 @@ class Person(models.Model):
 
     def __str__(self):
         return f"{self.nombre_completo} ({self.cedula})"
+
+class Conflict(models.Model):
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='conflicts')
+    fecha_inicio = models.DateField(null=True, blank=True)
+    q1 = models.BooleanField(default=False)
+    q2 = models.BooleanField(default=False)
+    q3 = models.BooleanField(default=False)
+    q4 = models.BooleanField(default=False)
+    q5 = models.BooleanField(default=False)
+    q6 = models.BooleanField(default=False)
+    q7 = models.BooleanField(default=False)
+    q8 = models.BooleanField(default=False)
+    q9 = models.BooleanField(default=False)
+    q10 = models.BooleanField(default=False)
+    q11 = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Conflictos para {self.person.nombre_completo}"
 "@
 
 Set-Content -Path "core/views.py" -Value @"
@@ -68,66 +88,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person
+from core.models import Person, Conflict
 from django.db.models import Count
 from django.db.models import Q
-
-def person_list(request):
-    # Get all filter parameters from the request
-    search_query = request.GET.get('q', '')
-    status_filter = request.GET.get('status', '')
-    cargo_filter = request.GET.get('cargo', '')
-    compania_filter = request.GET.get('compania', '')
-    
-    # Get sorting parameters
-    order_by = request.GET.get('order_by', 'nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-    
-    # Start with all persons
-    persons = Person.objects.all()
-    
-    # Apply filters
-    if search_query:
-        persons = persons.filter(
-            Q(nombre_completo__icontains=search_query) |
-            Q(cedula__icontains=search_query) |
-            Q(correo__icontains=search_query))
-    
-    if status_filter:
-        persons = persons.filter(estado=status_filter)
-    
-    if cargo_filter:
-        persons = persons.filter(cargo=cargo_filter)
-    
-    if compania_filter:
-        persons = persons.filter(compania=compania_filter)
-    
-    # Apply sorting
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    persons = persons.order_by(order_by)
-    
-    # Get unique values for filters
-    cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
-    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-    
-    # Pagination
-    paginator = Paginator(persons, 25)  # Show 25 persons per page
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    # Prepare context for template
-    context = {
-        'persons': page_obj,
-        'page_obj': page_obj,
-        'cargos': cargos,
-        'companias': companias,
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-    }
-    
-    return render(request, 'persons.html', context)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -165,6 +128,8 @@ class ImportView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         # Add any additional context data you need
+        context['conflict_count'] = Conflict.objects.count()
+        context['person_count'] = Person.objects.count()
         return context
     
 @login_required
@@ -239,6 +204,10 @@ def import_persons(request):
             # Ensure cedula is treated as string
             df['cedula'] = df['cedula'].astype(str)
             
+            # Convert nombre_completo to proper case (e.g., "CAMILO ABELLO" -> "Camilo Abello")
+            if 'nombre_completo' in df.columns:
+                df['nombre_completo'] = df['nombre_completo'].str.title()
+            
             # Save to database
             for _, row in df.iterrows():
                 Person.objects.update_or_create(
@@ -259,12 +228,194 @@ def import_persons(request):
         return HttpResponseRedirect('/import/')
     
     return HttpResponseRedirect('/import/')
+
+@login_required
+def person_list(request):
+    # Get all filter parameters from the request
+    search_query = request.GET.get('q', '')
+    status_filter = request.GET.get('status', '')
+    cargo_filter = request.GET.get('cargo', '')
+    compania_filter = request.GET.get('compania', '')
+    
+    # Get sorting parameters
+    order_by = request.GET.get('order_by', 'nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    # Start with all persons
+    persons = Person.objects.all()
+    
+    # Apply filters
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+    
+    if status_filter:
+        persons = persons.filter(estado=status_filter)
+    
+    if cargo_filter:
+        persons = persons.filter(cargo=cargo_filter)
+    
+    if compania_filter:
+        persons = persons.filter(compania=compania_filter)
+    
+    # Apply sorting
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+    
+    # Get unique values for filters
+    cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    
+    # Pagination
+    paginator = Paginator(persons, 25)  # Show 25 persons per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Prepare context for template
+    context = {
+        'persons': page_obj,
+        'page_obj': page_obj,
+        'cargos': cargos,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'persons.html', context)
+
+@login_required
+def import_conflicts(request):
+    """View for importing conflicts data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('conflict_excel_file'):
+        excel_file = request.FILES['conflict_excel_file']
+        try:
+            # Save the uploaded file
+            dest_path = "core/src/conflictos.xlsx"
+            with open(dest_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            # Process the Excel file using conflicts.py
+            import subprocess
+            subprocess.run(['python', 'core/conflicts.py'], check=True)
+            
+            # Now read the processed file and save to database
+            import pandas as pd
+            from core.models import Person, Conflict
+            
+            processed_file = "core/src/conflicts.xlsx"
+            df = pd.read_excel(processed_file)
+            
+            # Convert column names to lowercase and replace spaces with underscores
+            df.columns = df.columns.str.lower().str.replace(' ', '_')
+            
+            for _, row in df.iterrows():
+                try:
+                    # Find or create the person
+                    person, created = Person.objects.get_or_create(
+                        cedula=str(row['cedula']),
+                        defaults={
+                            'nombre_completo': row.get('nombre', ''),
+                            'correo': row.get('email', ''),
+                            'compania': row.get('compañía', ''),
+                            'cargo': row.get('cargo', '')
+                        }
+                    )
+                    
+                    # Update or create the conflict record
+                    Conflict.objects.update_or_create(
+                        person=person,
+                        defaults={
+                            'fecha_inicio': row.get('fecha_de_inicio', None),
+                            'q1': bool(row.get('q1', False)),
+                            'q2': bool(row.get('q2', False)),
+                            'q3': bool(row.get('q3', False)),
+                            'q4': bool(row.get('q4', False)),
+                            'q5': bool(row.get('q5', False)),
+                            'q6': bool(row.get('q6', False)),
+                            'q7': bool(row.get('q7', False)),
+                            'q8': bool(row.get('q8', False)),
+                            'q9': bool(row.get('q9', False)),
+                            'q10': bool(row.get('q10', False)),
+                            'q11': bool(row.get('q11', False))
+                        }
+                    )
+                    
+                except Exception as e:
+                    messages.error(request, f"Error processing row {row}: {str(e)}")
+                    continue
+            
+            messages.success(request, f'Archivo de conflictos importado exitosamente! {len(df)} registros procesados.')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de conflictos: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def conflict_list(request):
+    # Get all filter parameters from the request
+    search_query = request.GET.get('q', '')
+    compania_filter = request.GET.get('compania', '')
+    column_filter = request.GET.get('column', '')
+    answer_filter = request.GET.get('answer', '')
+    
+    # Get sorting parameters
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    # Start with all conflicts
+    conflicts = Conflict.objects.select_related('person').all()
+    
+    # Apply filters
+    if search_query:
+        conflicts = conflicts.filter(
+            Q(person__nombre_completo__icontains=search_query) |
+            Q(person__cedula__icontains=search_query) |
+            Q(person__correo__icontains=search_query))
+    
+    if compania_filter:
+        conflicts = conflicts.filter(person__compania=compania_filter)
+    
+    if column_filter and answer_filter:
+        filter_kwargs = {f"{column_filter}": answer_filter.lower() == 'yes'}
+        conflicts = conflicts.filter(**filter_kwargs)
+    
+    # Apply sorting
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    conflicts = conflicts.order_by(order_by)
+    
+    # Get unique values for filters
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    
+    # Pagination
+    paginator = Paginator(conflicts, 25)  # Show 25 conflicts per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Prepare context for template
+    context = {
+        'conflicts': page_obj,
+        'page_obj': page_obj,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'conflicts.html', context)
 "@
 
 # Create admin.py with enhanced configuration
 Set-Content -Path "core/admin.py" -Value @" 
 from django.contrib import admin
-from core.models import Person
+from core.models import Person, Conflict
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
@@ -272,6 +423,12 @@ class PersonAdmin(admin.ModelAdmin):
     search_fields = ('cedula', 'nombre_completo', 'correo')
     list_filter = ('estado', 'compania', 'revisar')
     list_editable = ('revisar',)
+
+@admin.register(Conflict)
+class ConflictAdmin(admin.ModelAdmin):
+    list_display = ('person', 'fecha_inicio', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11')
+    list_filter = ('q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11')
+    search_fields = ('person__nombre_completo', 'person__cedula')
 "@
 
 # Create urls.py for core app
@@ -284,7 +441,8 @@ from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
-from .views import main, register_superuser, ImportView, person_list
+from .views import (main, register_superuser, ImportView, person_list, 
+                   import_conflicts, conflict_list, import_period, import_persons)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -323,8 +481,113 @@ urlpatterns = [
     path('import/', ImportView.as_view(), name='import'),
     path('import-period/', views.import_period, name='import_period'),
     path('import-persons/', views.import_persons, name='import_persons'),
-    path('persons/', views.person_list, name='person_list')
+    path('import-conflicts/', views.import_conflicts, name='import_conflicts'),  # Add this line
+    path('persons/', views.person_list, name='person_list'),
+    path('conflicts/', views.conflict_list, name='conflict_list'),
 ]
+"@
+
+# Create core/conflicts.py
+Set-Content -Path "core/conflicts.py" -Value @"
+import pandas as pd
+import os
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import numbers
+
+def extract_specific_columns(input_file, output_file, custom_headers=None):
+    
+    try:
+        # Setup output directory
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Read raw data (no automatic parsing)
+        df = pd.read_excel(input_file, header=None)
+        
+        # Column selection (first 11 + specified extras)
+        base_cols = list(range(11))  # Columns 0-10 (A-K)
+        extra_cols = [12,14,16,18,20,22,24,25,26,28]
+        selected_cols = [col for col in base_cols + extra_cols if col < df.shape[1]]
+        
+        # Extract data with headers
+        result = df.iloc[3:, selected_cols].copy()
+        result.columns = df.iloc[2, selected_cols].values
+        
+        # Apply custom headers if provided
+        if custom_headers is not None:
+            if len(custom_headers) != len(result.columns):
+                raise ValueError(f"Custom headers count ({len(custom_headers)}) doesn't match column count ({len(result.columns)})")
+            result.columns = custom_headers
+        
+        # Merge C,D,E,F → C (indices 2,3,4,5)
+        if all(c in selected_cols for c in [2,3,4,5]):
+            result.iloc[:, 2] = result.iloc[:, 2:6].astype(str).apply(' '.join, axis=1)
+            result.drop(result.columns[3:6], axis=1, inplace=True)
+            selected_cols = [c for c in selected_cols if c not in [3,4,5]] 
+            
+        # Process "Nombre" column AFTER merging
+        if "Nombre" in result.columns:
+            # First replace actual NaN values with empty string
+            result["Nombre"] = result["Nombre"].fillna("")
+            # Then replace any "Nan" strings (case insensitive) with empty string
+            result["Nombre"] = result["Nombre"].replace(r'(?i)\bNan\b', '', regex=True)
+            # Clean up multiple spaces that might result from the replacement
+            result["Nombre"] = result["Nombre"].str.replace(r'\s+', ' ', regex=True).str.strip()
+            # Finally apply title case
+            result["Nombre"] = result["Nombre"].str.title()
+            
+        # Special handling for Column J (input index 9)
+        if 9 in selected_cols:
+            j_pos = selected_cols.index(9)  # Find its position in output
+            date_col = result.columns[j_pos]
+            
+            # Convert with European date format
+            result[date_col] = pd.to_datetime(
+                result[date_col],
+                dayfirst=True,
+                errors='coerce'
+            )
+            
+            # Save with Excel formatting
+            with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+                result.to_excel(writer, index=False)
+                
+                # Get the worksheet and format the date column
+                worksheet = writer.sheets['Sheet1']
+                date_col_letter = get_column_letter(j_pos + 1)
+                
+                # Apply date format to all cells in the column
+                for cell in worksheet[date_col_letter]:
+                    if cell.row == 1:  # Skip header
+                        continue
+                    cell.number_format = 'DD/MM/YYYY'
+                
+                # Auto-adjust columns
+                for idx, col in enumerate(result.columns):
+                    col_letter = get_column_letter(idx+1)
+                    worksheet.column_dimensions[col_letter].width = max(
+                        len(str(col))+2,
+                        result[col].astype(str).str.len().max()+2
+                    )
+        
+        else:
+            print("Warning: Column J not found in selected columns")
+    
+    except Exception as e:
+        print(f"Error: {str(e)}")
+
+# Example usage with custom headers
+custom_headers = [
+    "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido", 
+    "2do Apellido", "Compañía", "Cargo", "Email", "Fecha de Inicio", 
+    "Q1", "Q2", "Q3", "Q4", "Q5",
+    "Q6", "Q7", "Q8", "Q9", "Q10", "Q11"
+]
+
+extract_specific_columns(
+    input_file="core/src/conflictos.xlsx",
+    output_file="core/src/conflicts.xlsx",
+    custom_headers=custom_headers
+)
 "@
 
 # Update project urls.py with proper admin configuration
@@ -680,7 +943,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="" class="btn btn-custom-primary">
@@ -874,10 +1137,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="/alerts/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -958,13 +1221,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 {% endif %}
             {% endfor %}
+            <!-- count registers -->
+            <div class="card-footer">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success">
+                        {{ person_count }} Personas
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="col-md-4 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_conflicts' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="conflict_excel_file" name="conflict_excel_file" required>
@@ -983,6 +1254,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 {% endif %}
             {% endfor %}
+            <!-- count registers -->
+            <div class="card-footer">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success">
+                        {{ conflict_count }} declaraciones
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -1019,9 +1298,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <!-- Add password input field -->
                         <div class="mb-3">
                             <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password" placeholder="Clave">
-                            <div class="form-text">Ingrese la contraseÃƒÂ±a si los PDFs estÃƒÂ¡n protegidos</div>
+                            <div class="form-text">Ingrese la contrasena si los PDFs estan protegidos</div>
                         </div>
-                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar VISA</button>
+                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar TC</button>
                     </form>
                 </div>
             </div>
@@ -1123,7 +1402,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Conflictos">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Alertas">
@@ -1152,6 +1431,13 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success">
+                    {{ page_obj.paginator.count }} registros
+                </span>
+                {% if request.GET.q or request.GET.status or request.GET.cargo or request.GET.compania %}
+                {% endif %}
+            </div>
             <!-- General Search -->
             <div class="col-md-4">
                 <input type="text" 
@@ -1334,7 +1620,280 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/persons.html" -Encoding utf8
 
-    # Update settings.py
+# conflicts template
+@" 
+{% extends "master.html" %}
+
+{% block title %}Conflictos de Interes{% endblock %}
+{% block navbar_title %}Conflictos de Interes{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+        <i class="fas fa-upload"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search Form -->
+<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+    <div class="card-body">
+        <form method="get" action="." class="row g-3 align-items-center no-loading">
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success">
+                    {{ page_obj.paginator.count }} registros
+                </span>
+                {% if request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
+                {% endif %}
+            </div>
+            <!-- General Search -->
+            <div class="col-md-4">
+                <input type="text" 
+                       name="q" 
+                       class="form-control form-control-lg" 
+                       placeholder="Buscar..." 
+                       value="{{ request.GET.q }}">
+            </div>
+
+            <!-- Compania Filter -->
+            <div class="col-md-2">
+                <select name="compania" class="form-select form-select-lg">
+                    <option value="">Compania</option>
+                    {% for compania in companias %}
+                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Column Selector -->
+            <div class="col-md-2">
+                <select name="column" class="form-select form-select-lg">
+                    <option value="">Selecciona Pregunta</option>
+                    <option value="q1" {% if request.GET.column == 'q1' %}selected{% endif %}>Accionista de proveedor</option>
+                    <option value="q2" {% if request.GET.column == 'q2' %}selected{% endif %}>Familiar de accionista/empleado</option>
+                    <option value="q3" {% if request.GET.column == 'q3' %}selected{% endif %}>Accionista del grupo</option>
+                    <option value="q4" {% if request.GET.column == 'q4' %}selected{% endif %}>Actividades extralaborales</option>
+                    <option value="q5" {% if request.GET.column == 'q5' %}selected{% endif %}>Negocios con empleados</option>
+                    <option value="q6" {% if request.GET.column == 'q6' %}selected{% endif %}>Participacion en juntas</option>
+                    <option value="q7" {% if request.GET.column == 'q7' %}selected{% endif %}>Otro conflicto</option>
+                    <option value="q8" {% if request.GET.column == 'q8' %}selected{% endif %}>Conoce codigo de conducta</option>
+                    <option value="q9" {% if request.GET.column == 'q9' %}selected{% endif %}>Veracidad de informacion</option>
+                    <option value="q10" {% if request.GET.column == 'q10' %}selected{% endif %}>Familiar de funcionario</option>
+                    <option value="q11" {% if request.GET.column == 'q11' %}selected{% endif %}>Relacion con sector publico</option>
+                </select>
+            </div>
+            
+            <!-- Answer Selector -->
+            <div class="col-md-2">
+                <select name="answer" class="form-select form-select-lg">
+                    <option value="">Selecciona Respuesta</option>
+                    <option value="yes" {% if request.GET.answer == 'yes' %}selected{% endif %}>Si</option>
+                    <option value="no" {% if request.GET.answer == 'no' %}selected{% endif %}>No</option>
+                </select>
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Conflicts Table -->
+<div class="card border-0 shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive table-container">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-fixed-header">
+                    <tr>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__revisar&sort_direction={% if current_order == 'person__revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Revisar
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Nombre
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__compania&sort_direction={% if current_order == 'person__compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compania
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q1&sort_direction={% if current_order == 'q1' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Accionista de proveedor
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q2&sort_direction={% if current_order == 'q2' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Familiar de accionista/empleado
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q3&sort_direction={% if current_order == 'q3' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Accionista del grupo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q4&sort_direction={% if current_order == 'q4' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Actividades extralaborales
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q5&sort_direction={% if current_order == 'q5' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Negocios con empleados
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q6&sort_direction={% if current_order == 'q6' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Participacion en juntas
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q7&sort_direction={% if current_order == 'q7' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Otro conflicto
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q8&sort_direction={% if current_order == 'q8' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Conoce codigo de conducta
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q9&sort_direction={% if current_order == 'q9' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Veracidad de informacion
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q10&sort_direction={% if current_order == 'q10' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Familiar de funcionario
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q11&sort_direction={% if current_order == 'q11' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Relacion con sector publico
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for conflict in conflicts %}
+                        <tr {% if conflict.person.revisar %}class="table-warning"{% endif %}>
+                            <td>
+                                <a href="/admin/core/person/{{ conflict.person.cedula }}/change/" style="text-decoration: none;" title="{% if conflict.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                    <i class="fas fa-{% if conflict.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                </a>
+                            </td>
+                            <td>{{ conflict.person.nombre_completo }}</td>
+                            <td>{{ conflict.person.compania }}</td>
+                            <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
+                            <td class="table-fixed-column">
+                                <a href="/persons/details/{{ conflict.person.cedula }}/" 
+                                   class="btn btn-custom-primary btn-sm"
+                                   title="View details">
+                                    <i class="bi bi-person-vcard-fill"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="15" class="text-center py-4">
+                                {% if request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
+                                    Sin registros que coincidan con los filtros.
+                                {% else %}
+                                    Sin registros de conflictos
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+        <div class="p-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                                <span aria-hidden="true">&laquo;&laquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                                <span aria-hidden="true">&raquo;&raquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/conflicts.html" -Encoding utf8
+    
+# Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
     $settingsContent = $settingsContent -replace "INSTALLED_APPS = \[", "INSTALLED_APPS = [
     'core.apps.CoreConfig',
