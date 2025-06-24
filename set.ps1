@@ -39,6 +39,23 @@ function arpa {
 
 # Create models.py with cedula as primary key
 Set-Content -Path "core/models.py" -Value @" 
+from django.db import models
+from django.contrib.auth.models import User
+
+class Person(models.Model):
+    cedula = models.CharField(max_length=20, primary_key=True)
+    nombre_completo = models.CharField(max_length=255)
+    correo = models.EmailField(max_length=255, blank=True)
+    estado = models.CharField(max_length=50, default='Activo')
+    compania = models.CharField(max_length=255, blank=True)
+    cargo = models.CharField(max_length=255, blank=True)
+    revisar = models.BooleanField(default=False)
+    comments = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.nombre_completo} ({self.cedula})"
 "@
 
 Set-Content -Path "core/views.py" -Value @"
@@ -49,11 +66,6 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
-
-# The 'main' view is now a simple redirect to login if not authenticated, or a placeholder page if authenticated.
-@login_required
-def main(request):
-    return render(request, 'home.html') # A simple home.html will be created below
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -97,7 +109,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
 def main(request):
     return render(request, 'home.html')
 
-def import_period_excel(request):
+def import_period(request):
     """View for importing period data from Excel files"""
     if request.method == 'POST' and request.FILES.get('period_excel_file'):
         excel_file = request.FILES['period_excel_file']
@@ -115,10 +127,89 @@ def import_period_excel(request):
         return HttpResponseRedirect('/import/')
     
     return HttpResponseRedirect('/import/')
+
+@login_required
+def import_persons(request):
+    """View for importing persons data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('excel_file'):
+        excel_file = request.FILES['excel_file']
+        try:
+            # Define the destination path
+            dest_path = "core/src/Personas.xlsx"
+            
+            # Save the uploaded file
+            with open(dest_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            # Process the Excel file
+            import pandas as pd
+            from core.models import Person
+            
+            # Read the Excel file
+            df = pd.read_excel(dest_path)
+            
+            # Normalize column names (remove spaces, make lowercase)
+            df.columns = df.columns.str.strip().str.lower()
+            
+            # Map possible column name variations to our standard names
+            column_mapping = {
+                'nombre completo': 'nombre_completo',
+                'correo': 'correo',
+                'cedula': 'cedula',
+                'estado': 'estado',
+                'compania': 'compania',
+                'cargo': 'cargo',
+                'activo': 'activo'
+            }
+            
+            # Rename columns based on mapping
+            df = df.rename(columns=column_mapping)
+            
+            # Keep only the columns we need
+            required_columns = ['nombre_completo', 'correo', 'cedula', 'estado', 'compania', 'cargo', 'activo']
+            df = df[[col for col in required_columns if col in df.columns]]
+            
+            # Convert 'activo' to 'estado' if needed
+            if 'activo' in df.columns and 'estado' not in df.columns:
+                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
+            
+            # Ensure cedula is treated as string
+            df['cedula'] = df['cedula'].astype(str)
+            
+            # Save to database
+            for _, row in df.iterrows():
+                Person.objects.update_or_create(
+                    cedula=row['cedula'],
+                    defaults={
+                        'nombre_completo': row.get('nombre_completo', ''),
+                        'correo': row.get('correo', ''),
+                        'estado': row.get('estado', 'Activo'),
+                        'compania': row.get('compania', ''),
+                        'cargo': row.get('cargo', ''),
+                    }
+                )
+            
+            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados.')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de personas: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
 "@
 
 # Create admin.py with enhanced configuration
 Set-Content -Path "core/admin.py" -Value @" 
+from django.contrib import admin
+from core.models import Person
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ('cedula', 'nombre_completo', 'cargo', 'compania', 'estado', 'revisar')
+    search_fields = ('cedula', 'nombre_completo', 'correo')
+    list_filter = ('estado', 'compania', 'revisar')
+    list_editable = ('revisar',)
 "@
 
 # Create urls.py for core app
@@ -168,7 +259,8 @@ urlpatterns = [
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', register_superuser, name='register'),
     path('import/', ImportView.as_view(), name='import'),
-    path('import-period/', views.import_period_excel, name='import_period_excel'),
+    path('import-period/', views.import_period, name='import_period'),
+    path('import-persons/', views.import_persons, name='import_persons'),
 ]
 "@
 
@@ -516,16 +608,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="/persons/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="/finance/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="/conflicts/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="/alerts/" class="btn btn-custom-primary">
@@ -710,16 +802,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="/persons/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="/finance/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="/conflicts/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="/alerts/" class="btn btn-custom-primary">
@@ -759,7 +851,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="col-md-4 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_period_excel' %}">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_period' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="period_excel_file" name="period_excel_file" required>
@@ -769,7 +861,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </form>
             </div>
             {% for message in messages %}
-                {% if 'import_period_excel' in message.tags %}
+                {% if 'import_period' in message.tags %}
                 <div class="card-footer">
                     <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
                         {{ message }}
@@ -784,7 +876,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="col-md-4 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data"> 
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_persons' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="excel_file" name="excel_file" required>
@@ -951,7 +1043,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/import.html" -Encoding utf8
-
 
     # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
