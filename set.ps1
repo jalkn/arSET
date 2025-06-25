@@ -14,7 +14,7 @@ function arpa {
 
     # Install required Python packages
     python.exe -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 openpyxl pandas xlrd>=2.0.1 pdfplumber fitz
+    python -m pip install django whitenoise django-bootstrap-v5 openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool
 
     # Create Django project
     django-admin startproject arpa
@@ -58,7 +58,13 @@ class Person(models.Model):
         return f"{self.nombre_completo} ({self.cedula})"
 
 class Conflict(models.Model):
-    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='conflicts')
+    person = models.ForeignKey(
+        Person, 
+        on_delete=models.CASCADE, 
+        related_name='conflicts',
+        to_field='cedula',  # This specifies to use the 'cedula' field as the foreign key
+        db_column='cedula'  # This makes the database column name match
+    )
     fecha_inicio = models.DateField(null=True, blank=True)
     q1 = models.BooleanField(default=False)
     q2 = models.BooleanField(default=False)
@@ -76,346 +82,74 @@ class Conflict(models.Model):
 
     def __str__(self):
         return f"Conflictos para {self.person.nombre_completo}"
-"@
 
-Set-Content -Path "core/views.py" -Value @"
-from django.http import HttpResponse, HttpResponseRedirect
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.contrib.auth import get_user_model
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import TemplateView
-from django.core.paginator import Paginator
-from django.shortcuts import render
-from core.models import Person, Conflict
-from django.db.models import Count
-from django.db.models import Q
+class FinancialReport(models.Model):
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='financial_reports')
+    cedula = models.CharField(max_length=20)
+    fkIdPeriodo = models.IntegerField()
+    ano_declaracion = models.IntegerField()
+    ano_creacion = models.IntegerField()
+    activos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    cant_bienes = models.IntegerField(null=True, blank=True)
+    cant_bancos = models.IntegerField(null=True, blank=True)
+    cant_cuentas = models.IntegerField(null=True, blank=True)
+    cant_inversiones = models.IntegerField(null=True, blank=True)
+    pasivos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    cant_deudas = models.IntegerField(null=True, blank=True)
+    patrimonio = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    apalancamiento = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    endeudamiento = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    capital = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    aum_pat_subito = models.CharField(max_length=100, null=True, blank=True)
+    activos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    activos_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    pasivos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    pasivos_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    patrimonio_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    patrimonio_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    apalancamiento_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    apalancamiento_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    endeudamiento_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    endeudamiento_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    banco_saldo = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    bienes = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    inversiones = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    banco_saldo_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    banco_saldo_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    bienes_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    bienes_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    inversiones_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    inversiones_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    ingresos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    cant_ingresos = models.IntegerField(null=True, blank=True)
+    ingresos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
+    ingresos_var_rel = models.CharField(max_length=100, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-def register_superuser(request):
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        email = request.POST.get('email')
-        password1 = request.POST.get('password1')
-        password2 = request.POST.get('password2')
-
-        if password1 != password2:
-            messages.error(request, "Passwords don't match")
-            return redirect('register')
-
-        User = get_user_model()
-        if User.objects.filter(username=username).exists():
-            messages.error(request, "Username already exists")
-            return redirect('register')
-
-        try:
-            user = User.objects.create_superuser(
-                username=username,
-                email=email,
-                password=password1
-            )
-            messages.success(request, f"Superuser {username} created successfully!")
-            return redirect('login')
-        except Exception as e:
-            messages.error(request, f"Error creating superuser: {str(e)}")
-            return redirect('register')
-
-    return render(request, 'registration/register.html')
-
-class ImportView(LoginRequiredMixin, TemplateView):
-    template_name = 'import.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Add any additional context data you need
-        context['conflict_count'] = Conflict.objects.count()
-        context['person_count'] = Person.objects.count()
-        return context
-    
-@login_required
-def main(request):
-    return render(request, 'home.html')
-
-def import_period(request):
-    """View for importing period data from Excel files"""
-    if request.method == 'POST' and request.FILES.get('period_excel_file'):
-        excel_file = request.FILES['period_excel_file']
-        try:
-            # Save the uploaded file to the desired location
-            temp_path = "core/src/periodoBR.xlsx"
-            with open(temp_path, 'wb+') as destination:
-                for chunk in excel_file.chunks():
-                    destination.write(chunk)
-            
-            messages.success(request, 'Archivo de periodos importado exitosamente!')
-        except Exception as e:
-            messages.error(request, f'Error procesando archivo de periodos: {str(e)}')
-        
-        return HttpResponseRedirect('/import/')
-    
-    return HttpResponseRedirect('/import/')
-
-@login_required
-def import_persons(request):
-    """View for importing persons data from Excel files"""
-    if request.method == 'POST' and request.FILES.get('excel_file'):
-        excel_file = request.FILES['excel_file']
-        try:
-            # Define the destination path
-            dest_path = "core/src/Personas.xlsx"
-            
-            # Save the uploaded file
-            with open(dest_path, 'wb+') as destination:
-                for chunk in excel_file.chunks():
-                    destination.write(chunk)
-            
-            # Process the Excel file
-            import pandas as pd
-            from core.models import Person
-            
-            # Read the Excel file
-            df = pd.read_excel(dest_path)
-            
-            # Normalize column names (remove spaces, make lowercase)
-            df.columns = df.columns.str.strip().str.lower()
-            
-            # Map possible column name variations to our standard names
-            column_mapping = {
-                'nombre completo': 'nombre_completo',
-                'correo': 'correo',
-                'cedula': 'cedula',
-                'estado': 'estado',
-                'compania': 'compania',
-                'cargo': 'cargo',
-                'activo': 'activo'
-            }
-            
-            # Rename columns based on mapping
-            df = df.rename(columns=column_mapping)
-            
-            # Keep only the columns we need
-            required_columns = ['nombre_completo', 'correo', 'cedula', 'estado', 'compania', 'cargo', 'activo']
-            df = df[[col for col in required_columns if col in df.columns]]
-            
-            # Convert 'activo' to 'estado' if needed
-            if 'activo' in df.columns and 'estado' not in df.columns:
-                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
-            
-            # Ensure cedula is treated as string
-            df['cedula'] = df['cedula'].astype(str)
-            
-            # Convert nombre_completo to proper case (e.g., "CAMILO ABELLO" -> "Camilo Abello")
-            if 'nombre_completo' in df.columns:
-                df['nombre_completo'] = df['nombre_completo'].str.title()
-            
-            # Save to database
-            for _, row in df.iterrows():
-                Person.objects.update_or_create(
-                    cedula=row['cedula'],
-                    defaults={
-                        'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''),
-                        'estado': row.get('estado', 'Activo'),
-                        'compania': row.get('compania', ''),
-                        'cargo': row.get('cargo', ''),
-                    }
-                )
-            
-            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados.')
-        except Exception as e:
-            messages.error(request, f'Error procesando archivo de personas: {str(e)}')
-        
-        return HttpResponseRedirect('/import/')
-    
-    return HttpResponseRedirect('/import/')
-
-@login_required
-def person_list(request):
-    # Get all filter parameters from the request
-    search_query = request.GET.get('q', '')
-    status_filter = request.GET.get('status', '')
-    cargo_filter = request.GET.get('cargo', '')
-    compania_filter = request.GET.get('compania', '')
-    
-    # Get sorting parameters
-    order_by = request.GET.get('order_by', 'nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-    
-    # Start with all persons
-    persons = Person.objects.all()
-    
-    # Apply filters
-    if search_query:
-        persons = persons.filter(
-            Q(nombre_completo__icontains=search_query) |
-            Q(cedula__icontains=search_query) |
-            Q(correo__icontains=search_query))
-    
-    if status_filter:
-        persons = persons.filter(estado=status_filter)
-    
-    if cargo_filter:
-        persons = persons.filter(cargo=cargo_filter)
-    
-    if compania_filter:
-        persons = persons.filter(compania=compania_filter)
-    
-    # Apply sorting
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    persons = persons.order_by(order_by)
-    
-    # Get unique values for filters
-    cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
-    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-    
-    # Pagination
-    paginator = Paginator(persons, 25)  # Show 25 persons per page
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    # Prepare context for template
-    context = {
-        'persons': page_obj,
-        'page_obj': page_obj,
-        'cargos': cargos,
-        'companias': companias,
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-    }
-    
-    return render(request, 'persons.html', context)
-
-@login_required
-def import_conflicts(request):
-    """View for importing conflicts data from Excel files"""
-    if request.method == 'POST' and request.FILES.get('conflict_excel_file'):
-        excel_file = request.FILES['conflict_excel_file']
-        try:
-            # Save the uploaded file
-            dest_path = "core/src/conflictos.xlsx"
-            with open(dest_path, 'wb+') as destination:
-                for chunk in excel_file.chunks():
-                    destination.write(chunk)
-            
-            # Process the Excel file using conflicts.py
-            import subprocess
-            subprocess.run(['python', 'core/conflicts.py'], check=True)
-            
-            # Now read the processed file and save to database
-            import pandas as pd
-            from core.models import Person, Conflict
-            
-            processed_file = "core/src/conflicts.xlsx"
-            df = pd.read_excel(processed_file)
-            
-            # Convert column names to lowercase and replace spaces with underscores
-            df.columns = df.columns.str.lower().str.replace(' ', '_')
-            
-            for _, row in df.iterrows():
-                try:
-                    # Find or create the person
-                    person, created = Person.objects.get_or_create(
-                        cedula=str(row['cedula']),
-                        defaults={
-                            'nombre_completo': row.get('nombre', ''),
-                            'correo': row.get('email', ''),
-                            'compania': row.get('compañía', ''),
-                            'cargo': row.get('cargo', '')
-                        }
-                    )
-                    
-                    # Update or create the conflict record
-                    Conflict.objects.update_or_create(
-                        person=person,
-                        defaults={
-                            'fecha_inicio': row.get('fecha_de_inicio', None),
-                            'q1': bool(row.get('q1', False)),
-                            'q2': bool(row.get('q2', False)),
-                            'q3': bool(row.get('q3', False)),
-                            'q4': bool(row.get('q4', False)),
-                            'q5': bool(row.get('q5', False)),
-                            'q6': bool(row.get('q6', False)),
-                            'q7': bool(row.get('q7', False)),
-                            'q8': bool(row.get('q8', False)),
-                            'q9': bool(row.get('q9', False)),
-                            'q10': bool(row.get('q10', False)),
-                            'q11': bool(row.get('q11', False))
-                        }
-                    )
-                    
-                except Exception as e:
-                    messages.error(request, f"Error processing row {row}: {str(e)}")
-                    continue
-            
-            messages.success(request, f'Archivo de conflictos importado exitosamente! {len(df)} registros procesados.')
-        except Exception as e:
-            messages.error(request, f'Error procesando archivo de conflictos: {str(e)}')
-        
-        return HttpResponseRedirect('/import/')
-    
-    return HttpResponseRedirect('/import/')
-
-@login_required
-def conflict_list(request):
-    # Get all filter parameters from the request
-    search_query = request.GET.get('q', '')
-    compania_filter = request.GET.get('compania', '')
-    column_filter = request.GET.get('column', '')
-    answer_filter = request.GET.get('answer', '')
-    
-    # Get sorting parameters
-    order_by = request.GET.get('order_by', 'person__nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-    
-    # Start with all conflicts
-    conflicts = Conflict.objects.select_related('person').all()
-    
-    # Apply filters
-    if search_query:
-        conflicts = conflicts.filter(
-            Q(person__nombre_completo__icontains=search_query) |
-            Q(person__cedula__icontains=search_query) |
-            Q(person__correo__icontains=search_query))
-    
-    if compania_filter:
-        conflicts = conflicts.filter(person__compania=compania_filter)
-    
-    if column_filter and answer_filter:
-        filter_kwargs = {f"{column_filter}": answer_filter.lower() == 'yes'}
-        conflicts = conflicts.filter(**filter_kwargs)
-    
-    # Apply sorting
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    conflicts = conflicts.order_by(order_by)
-    
-    # Get unique values for filters
-    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-    
-    # Pagination
-    paginator = Paginator(conflicts, 25)  # Show 25 conflicts per page
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    # Prepare context for template
-    context = {
-        'conflicts': page_obj,
-        'page_obj': page_obj,
-        'companias': companias,
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-    }
-    
-    return render(request, 'conflicts.html', context)
+    def __str__(self):
+        return f"Reporte financiero para {self.person.nombre_completo} ({self.ano_declaracion})"
 "@
 
 # Create admin.py with enhanced configuration
 Set-Content -Path "core/admin.py" -Value @" 
 from django.contrib import admin
-from core.models import Person, Conflict
+from django import forms
+from django.utils.html import format_html
+from django.urls import reverse
+from django.utils.safestring import mark_safe
+from core.models import Person, Conflict, FinancialReport
+
+class ConflictForm(forms.ModelForm):
+    class Meta:
+        model = Conflict
+        fields = '__all__'
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Replace boolean field widgets with custom display
+        for field_name in ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11']:
+            self.fields[field_name].widget = forms.Select(choices=[(True, 'YES'), (False, 'NO')])
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
@@ -423,12 +157,166 @@ class PersonAdmin(admin.ModelAdmin):
     search_fields = ('cedula', 'nombre_completo', 'correo')
     list_filter = ('estado', 'compania', 'revisar')
     list_editable = ('revisar',)
+    
+    # Custom fields to show in detail view
+    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link')
+    
+    fieldsets = (
+        (None, {
+            'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
+        }),
+        ('Related Records', {
+            'fields': ('conflicts_link', 'financial_reports_link'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def cedula_with_actions(self, obj):
+        if obj.pk:
+            change_url = reverse('admin:core_person_change', args=[obj.pk])
+            history_url = reverse('admin:core_person_history', args=[obj.pk])
+            add_url = reverse('admin:core_person_add')
+            
+            return format_html(
+                '{} <div class="nowrap">'
+                '<a href="{}" class="changelink">Change</a> &nbsp;'
+                '<a href="{}" class="historylink">History</a> &nbsp;'
+                '<a href="{}" class="addlink">Add another</a>'
+                '</div>',
+                obj.cedula,
+                change_url,
+                history_url,
+                add_url
+            )
+        return obj.cedula
+    cedula_with_actions.short_description = 'Cedula'
+    
+    def conflicts_link(self, obj):
+        if obj.pk:
+            conflict = obj.conflicts.first()
+            if conflict:
+                change_url = reverse('admin:core_conflict_change', args=[conflict.pk])
+                add_url = reverse('admin:core_conflict_add') + f'?person={obj.pk}'
+                list_url = reverse('admin:core_conflict_changelist') + f'?q={obj.cedula}'
+                
+                return format_html(
+                    '<div class="nowrap">'
+                    '<a href="{}" class="changelink">View/Edit Conflicts</a> &nbsp;'
+                    '<a href="{}" class="addlink">Add New Conflict</a> &nbsp;'
+                    '<a href="{}" class="viewlink">All Conflicts</a>'
+                    '</div>',
+                    change_url,
+                    add_url,
+                    list_url
+                )
+            else:
+                add_url = reverse('admin:core_conflict_add') + f'?person={obj.pk}'
+                return format_html(
+                    '<a href="{}" class="addlink">Create Conflict Record</a>',
+                    add_url
+                )
+        return "-"
+    conflicts_link.short_description = 'Conflict Records'
+    conflicts_link.allow_tags = True
+    
+    def financial_reports_link(self, obj):
+        if obj.pk:
+            report = obj.financial_reports.first()
+            if report:
+                change_url = reverse('admin:core_financialreport_change', args=[report.pk])
+                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
+                list_url = reverse('admin:core_financialreport_changelist') + f'?q={obj.cedula}'
+                
+                return format_html(
+                    '<div class="nowrap">'
+                    '<a href="{}" class="changelink">View/Edit Financials</a> &nbsp;'
+                    '<a href="{}" class="addlink">Add New Report</a> &nbsp;'
+                    '<a href="{}" class="viewlink">All Reports</a>'
+                    '</div>',
+                    change_url,
+                    add_url,
+                    list_url
+                )
+            else:
+                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
+                return format_html(
+                    '<a href="{}" class="addlink">Create Financial Report</a>',
+                    add_url
+                )
+        return "-"
+    financial_reports_link.short_description = 'Financial Reports'
+    financial_reports_link.allow_tags = True
+    
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:  # Add view
+            return [(None, {'fields': ('cedula', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')})]
+        return super().get_fieldsets(request, obj)
 
 @admin.register(Conflict)
 class ConflictAdmin(admin.ModelAdmin):
-    list_display = ('person', 'fecha_inicio', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11')
+    form = ConflictForm
+    list_display = ('person', 'fecha_inicio') + tuple(
+        f'get_{field}_display' for field in ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11']
+    )
     list_filter = ('q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11')
     search_fields = ('person__nombre_completo', 'person__cedula')
+    raw_id_fields = ('person',)
+
+    fieldsets = (
+        (None, {
+            'fields': ('person', 'fecha_inicio')
+        }),
+        ('Conflict Questions', {
+            'fields': ('q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11'),
+            'description': 'Answer "YES" or "NO" to each question'
+        }),
+    )
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        form.base_fields['q1'].label = 'Accionista de proveedor'
+        form.base_fields['q2'].label = 'Familiar de accionista/empleado'
+        form.base_fields['q3'].label = 'Accionista del grupo'
+        form.base_fields['q4'].label = 'Actividades extralaborales'
+        form.base_fields['q5'].label = 'Negocios con empleados'
+        form.base_fields['q6'].label = 'Participacion en juntas'
+        form.base_fields['q7'].label = 'Otro conflicto'
+        form.base_fields['q8'].label = 'Conoce codigo de conducta'
+        form.base_fields['q9'].label = 'Veracidad de informacion'
+        form.base_fields['q10'].label = 'Familiar de funcionario'
+        form.base_fields['q11'].label = 'Relacion con sector publico'
+        return form
+
+    # YES/NO display methods for list view
+    def get_q1_display(self, obj): return "YES" if obj.q1 else "NO"
+    get_q1_display.short_description = 'Accionista de proveedor'
+    def get_q2_display(self, obj): return "YES" if obj.q2 else "NO"
+    get_q2_display.short_description = 'Familiar de accionista/empleado'
+    def get_q3_display(self, obj): return "YES" if obj.q3 else "NO"
+    get_q3_display.short_description = 'Accionista del grupo'
+    def get_q4_display(self, obj): return "YES" if obj.q4 else "NO"
+    get_q4_display.short_description = 'Actividades extralaborales'
+    def get_q5_display(self, obj): return "YES" if obj.q5 else "NO"
+    get_q5_display.short_description = 'Negocios con empleados'
+    def get_q6_display(self, obj): return "YES" if obj.q6 else "NO"
+    get_q6_display.short_description = 'Participacion en juntas'
+    def get_q7_display(self, obj): return "YES" if obj.q7 else "NO"
+    get_q7_display.short_description = 'Otro conflicto'
+    def get_q8_display(self, obj): return "YES" if obj.q8 else "NO"
+    get_q8_display.short_description = 'Conoce codigo de conducta'
+    def get_q9_display(self, obj): return "YES" if obj.q9 else "NO"
+    get_q9_display.short_description = 'Veracidad de informacion'
+    def get_q10_display(self, obj): return "YES" if obj.q10 else "NO"
+    get_q10_display.short_description = 'Familiar de funcionario'
+    def get_q11_display(self, obj): return "YES" if obj.q11 else "NO"
+    get_q11_display.short_description = 'Relacion con sector publico'
+
+@admin.register(FinancialReport)
+class FinancialReportAdmin(admin.ModelAdmin):
+    list_display = ('person', 'ano_declaracion', 'activos', 'pasivos', 'patrimonio')
+    search_fields = ('person__nombre_completo', 'person__cedula')
+    list_filter = ('ano_declaracion',)
+    raw_id_fields = ('person',)
 "@
 
 # Create urls.py for core app
@@ -442,7 +330,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_period, import_persons)
+                   import_conflicts, conflict_list, import_period, import_persons, import_financials)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -481,10 +369,492 @@ urlpatterns = [
     path('import/', ImportView.as_view(), name='import'),
     path('import-period/', views.import_period, name='import_period'),
     path('import-persons/', views.import_persons, name='import_persons'),
-    path('import-conflicts/', views.import_conflicts, name='import_conflicts'),  # Add this line
+    path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
+    path('import-financials/', views.import_financials, name='import_financials'),
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
 ]
+"@
+
+# Update core/views.py with financial import
+Set-Content -Path "core/views.py" -Value @"
+from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import TemplateView
+from django.core.paginator import Paginator
+from django.shortcuts import render
+from core.models import Person, Conflict, FinancialReport
+from django.db.models import Count
+from django.db.models import Q
+import pandas as pd
+import subprocess
+import os
+
+def register_superuser(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password1 = request.POST.get('password1')
+        password2 = request.POST.get('password2')
+
+        if password1 != password2:
+            messages.error(request, "Passwords don't match")
+            return redirect('register')
+
+        User = get_user_model()
+        if User.objects.filter(username=username).exists():
+            messages.error(request, "Username already exists")
+            return redirect('register')
+
+        try:
+            user = User.objects.create_superuser(
+                username=username,
+                email=email,
+                password=password1
+            )
+            messages.success(request, f"Superuser {username} created successfully!")
+            return redirect('login')
+        except Exception as e:
+            messages.error(request, f"Error creating superuser: {str(e)}")
+            return redirect('register')
+
+    return render(request, 'registration/register.html')
+
+class ImportView(LoginRequiredMixin, TemplateView):
+    template_name = 'import.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['conflict_count'] = Conflict.objects.count()
+        context['person_count'] = Person.objects.count()
+        return context
+    
+@login_required
+def main(request):
+    return render(request, 'home.html')
+
+def import_period(request):
+    """View for importing period data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('period_excel_file'):
+        excel_file = request.FILES['period_excel_file']
+        try:
+            temp_path = "core/src/periodoBR.xlsx"
+            with open(temp_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            messages.success(request, 'Archivo de periodos importado exitosamente!')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de periodos: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def import_persons(request):
+    """View for importing persons data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('excel_file'):
+        excel_file = request.FILES['excel_file']
+        try:
+            dest_path = "core/src/Personas.xlsx"
+            with open(dest_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            import pandas as pd
+            from core.models import Person
+            
+            df = pd.read_excel(dest_path)
+            df.columns = df.columns.str.strip().str.lower()
+            
+            column_mapping = {
+                'nombre completo': 'nombre_completo',
+                'correo': 'correo',
+                'cedula': 'cedula',
+                'estado': 'estado',
+                'compania': 'compania',
+                'cargo': 'cargo',
+                'activo': 'activo'
+            }
+            
+            df = df.rename(columns=column_mapping)
+            required_columns = ['nombre_completo', 'correo', 'cedula', 'estado', 'compania', 'cargo', 'activo']
+            df = df[[col for col in required_columns if col in df.columns]]
+            
+            if 'activo' in df.columns and 'estado' not in df.columns:
+                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
+            
+            df['cedula'] = df['cedula'].astype(str)
+            
+            if 'nombre_completo' in df.columns:
+                df['nombre_completo'] = df['nombre_completo'].str.title()
+            
+            for _, row in df.iterrows():
+                Person.objects.update_or_create(
+                    cedula=row['cedula'],
+                    defaults={
+                        'nombre_completo': row.get('nombre_completo', ''),
+                        'correo': row.get('correo', ''),
+                        'estado': row.get('estado', 'Activo'),
+                        'compania': row.get('compania', ''),
+                        'cargo': row.get('cargo', ''),
+                    }
+                )
+            
+            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados.')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de personas: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def import_conflicts(request):
+    """View for importing conflicts data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('conflict_excel_file'):
+        excel_file = request.FILES['conflict_excel_file']
+        try:
+            dest_path = "core/src/conflictos.xlsx"
+            with open(dest_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            subprocess.run(['python', 'core/conflicts.py'], check=True)
+            
+            import pandas as pd
+            from core.models import Person, Conflict
+            
+            processed_file = "core/src/conflicts.xlsx"
+            df = pd.read_excel(processed_file)
+            df.columns = df.columns.str.lower().str.replace(' ', '_')
+            
+            for _, row in df.iterrows():
+                try:
+                    person, created = Person.objects.get_or_create(
+                        cedula=str(row['cedula']),
+                        defaults={
+                            'nombre_completo': row.get('nombre', ''),
+                            'correo': row.get('email', ''),
+                            'compania': row.get('compañía', ''),
+                            'cargo': row.get('cargo', '')
+                        }
+                    )
+                    
+                    Conflict.objects.update_or_create(
+                        person=person,
+                        defaults={
+                            'fecha_inicio': row.get('fecha_de_inicio', None),
+                            'q1': bool(row.get('q1', False)),
+                            'q2': bool(row.get('q2', False)),
+                            'q3': bool(row.get('q3', False)),
+                            'q4': bool(row.get('q4', False)),
+                            'q5': bool(row.get('q5', False)),
+                            'q6': bool(row.get('q6', False)),
+                            'q7': bool(row.get('q7', False)),
+                            'q8': bool(row.get('q8', False)),
+                            'q9': bool(row.get('q9', False)),
+                            'q10': bool(row.get('q10', False)),
+                            'q11': bool(row.get('q11', False))
+                        }
+                    )
+                    
+                except Exception as e:
+                    messages.error(request, f"Error processing row {row}: {str(e)}")
+                    continue
+            
+            messages.success(request, f'Archivo de conflictos importado exitosamente! {len(df)} registros procesados.')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de conflictos: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def import_financials(request):
+    """View for importing financial data from Excel files"""
+    if request.method == 'POST' and request.FILES.get('protected_excel_file'):
+        excel_file = request.FILES['protected_excel_file']
+        excel_password = request.POST.get('excel_password', '')
+        
+        try:
+            # Save the uploaded file
+            dest_path = "core/src/data.xlsx"
+            
+            # Read the password-protected file and save it without password
+            try:
+                import msoffcrypto
+                import io
+                
+                # Read the uploaded file into memory
+                file_content = excel_file.read()
+                
+                # Decrypt the file
+                decrypted = io.BytesIO()
+                office_file = msoffcrypto.OfficeFile(io.BytesIO(file_content))
+                office_file.load_key(password=excel_password)
+                office_file.decrypt(decrypted)
+                
+                # Save the decrypted file
+                with open(dest_path, 'wb') as destination:
+                    destination.write(decrypted.getvalue())
+                
+            except Exception as e:
+                messages.error(request, f'Error decrypting file: {str(e)}')
+                return HttpResponseRedirect('/import/')
+            
+            # Process the Excel file using the analysis scripts
+            try:
+                # Run cats.py to analyze the raw data
+                subprocess.run(['python', 'core/cats.py'], check=True)
+                
+                # Run nets.py to generate summaries
+                subprocess.run(['python', 'core/nets.py'], check=True)
+                
+                # Run trends.py to calculate trends
+                subprocess.run(['python', 'core/trends.py'], check=True)
+                
+                # Run idTrends.py to merge with personas and create idTrends.xlsx
+                subprocess.run(['python', 'core/idTrends.py'], check=True)
+                
+                # Now import the processed data from idTrends.xlsx into FinancialReport model
+                import pandas as pd
+                from core.models import Person, FinancialReport
+                
+                processed_file = "core/src/idTrends.xlsx"
+                df = pd.read_excel(processed_file)
+                
+                # Check if 'Cedula' column exists
+                if 'Cedula' not in df.columns:
+                    messages.error(request, "El archivo procesado no contiene la columna 'Cedula'")
+                    return HttpResponseRedirect('/import/')
+                
+                for _, row in df.iterrows():
+                    try:
+                        # Get the cedula value
+                        cedula_value = str(row['Cedula']) if pd.notna(row['Cedula']) else None
+                        if not cedula_value:
+                            messages.warning(request, "Fila sin cédula encontrada, saltando...")
+                            continue
+                            
+                        # Find the person by cedula
+                        person = Person.objects.filter(cedula=cedula_value).first()
+                        if not person:
+                            messages.warning(request, f"Persona con cédula {cedula_value} no encontrada")
+                            continue
+                            
+                        # Create or update FinancialReport
+                        FinancialReport.objects.update_or_create(
+                            person=person,
+                            cedula=cedula_value,
+                            fkIdPeriodo=row.get('fkIdPeriodo', 0),
+                            ano_declaracion=row.get('Año Declaración', 0),
+                            ano_creacion=row.get('Año Creación', 0),
+                            defaults={
+                                'activos': row.get('Activos', 0),
+                                'cant_bienes': row.get('Cant_Bienes', 0),
+                                'cant_bancos': row.get('Cant_Bancos', 0),
+                                'cant_cuentas': row.get('Cant_Cuentas', 0),
+                                'cant_inversiones': row.get('Cant_Inversiones', 0),
+                                'pasivos': row.get('Pasivos', 0),
+                                'cant_deudas': row.get('Cant_Deudas', 0),
+                                'patrimonio': row.get('Patrimonio', 0),
+                                'apalancamiento': row.get('Apalancamiento', 0),
+                                'endeudamiento': row.get('Endeudamiento', 0),
+                                'capital': row.get('Capital', 0),
+                                'aum_pat_subito': row.get('Aum. Pat. Subito', ''),
+                                'activos_var_abs': row.get('Activos Var. Abs.', 0),
+                                'activos_var_rel': row.get('Activos Var. Rel.', ''),
+                                'pasivos_var_abs': row.get('Pasivos Var. Abs.', 0),
+                                'pasivos_var_rel': row.get('Pasivos Var. Rel.', ''),
+                                'patrimonio_var_abs': row.get('Patrimonio Var. Abs.', 0),
+                                'patrimonio_var_rel': row.get('Patrimonio Var. Rel.', ''),
+                                'apalancamiento_var_abs': row.get('Apalancamiento Var. Abs.', 0),
+                                'apalancamiento_var_rel': row.get('Apalancamiento Var. Rel.', ''),
+                                'endeudamiento_var_abs': row.get('Endeudamiento Var. Abs.', 0),
+                                'endeudamiento_var_rel': row.get('Endeudamiento Var. Rel.', ''),
+                                'banco_saldo': row.get('BancoSaldo', 0),
+                                'bienes': row.get('Bienes', 0),
+                                'inversiones': row.get('Inversiones', 0),
+                                'banco_saldo_var_abs': row.get('BancoSaldo Var. Abs.', 0),
+                                'banco_saldo_var_rel': row.get('BancoSaldo Var. Rel.', ''),
+                                'bienes_var_abs': row.get('Bienes Var. Abs.', 0),
+                                'bienes_var_rel': row.get('Bienes Var. Rel.', ''),
+                                'inversiones_var_abs': row.get('Inversiones Var. Abs.', 0),
+                                'inversiones_var_rel': row.get('Inversiones Var. Rel.', ''),
+                                'ingresos': row.get('Ingresos', 0),
+                                'cant_ingresos': row.get('Cant_Ingresos', 0),
+                                'ingresos_var_abs': row.get('Ingresos Var. Abs.', 0),
+                                'ingresos_var_rel': row.get('Ingresos Var. Rel.', ''),
+                            }
+                        )
+                    except Exception as e:
+                        messages.error(request, f"Error procesando fila {cedula_value}: {str(e)}")
+                        continue
+                
+                messages.success(request, 'Datos financieros importados y procesados exitosamente!')
+            except subprocess.CalledProcessError as e:
+                messages.error(request, f'Error ejecutando scripts de análisis: {str(e)}')
+            except Exception as e:
+                messages.error(request, f'Error procesando datos financieros: {str(e)}')
+        except Exception as e:
+            messages.error(request, f'Error guardando archivo financiero: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def person_list(request):
+    search_query = request.GET.get('q', '')
+    status_filter = request.GET.get('status', '')
+    cargo_filter = request.GET.get('cargo', '')
+    compania_filter = request.GET.get('compania', '')
+    
+    order_by = request.GET.get('order_by', 'nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    persons = Person.objects.all()
+    
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+    
+    if status_filter:
+        persons = persons.filter(estado=status_filter)
+    
+    if cargo_filter:
+        persons = persons.filter(cargo=cargo_filter)
+    
+    if compania_filter:
+        persons = persons.filter(compania=compania_filter)
+    
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+    
+    cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    
+    paginator = Paginator(persons, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'persons': page_obj,
+        'page_obj': page_obj,
+        'cargos': cargos,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'persons.html', context)
+
+@login_required
+def conflict_list(request):
+    search_query = request.GET.get('q', '')
+    compania_filter = request.GET.get('compania', '')
+    column_filter = request.GET.get('column', '')
+    answer_filter = request.GET.get('answer', '')
+    
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    conflicts = Conflict.objects.select_related('person').all()
+    
+    if search_query:
+        conflicts = conflicts.filter(
+            Q(person__nombre_completo__icontains=search_query) |
+            Q(person__cedula__icontains=search_query) |
+            Q(person__correo__icontains=search_query))
+    
+    if compania_filter:
+        conflicts = conflicts.filter(person__compania=compania_filter)
+    
+    if column_filter and answer_filter:
+        filter_kwargs = {f"{column_filter}": answer_filter.lower() == 'yes'}
+        conflicts = conflicts.filter(**filter_kwargs)
+    
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    conflicts = conflicts.order_by(order_by)
+    
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    
+    paginator = Paginator(conflicts, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'conflicts': page_obj,
+        'page_obj': page_obj,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'conflicts.html', context)
+
+@login_required
+def financial_list(request):
+    search_query = request.GET.get('q', '')
+    column_filter = request.GET.get('column', '')
+    operator_filter = request.GET.get('operator', '')
+    value_filter = request.GET.get('value', '')
+    
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+    
+    persons = Person.objects.prefetch_related('financial_reports').all()
+    
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+    
+    if column_filter and operator_filter and value_filter:
+        if operator_filter == '>':
+            persons = persons.filter(financial_reports__**{f"{column_filter}__gt": value_filter})
+        elif operator_filter == '<':
+            persons = persons.filter(financial_reports__**{f"{column_filter}__lt": value_filter})
+        elif operator_filter == '=':
+            persons = persons.filter(financial_reports__**{f"{column_filter}": value_filter})
+        elif operator_filter == '>=':
+            persons = persons.filter(financial_reports__**{f"{column_filter}__gte": value_filter})
+        elif operator_filter == '<=':
+            persons = persons.filter(financial_reports__**{f"{column_filter}__lte": value_filter})
+        elif operator_filter == 'contains':
+            persons = persons.filter(financial_reports__**{f"{column_filter}__icontains": value_filter})
+    
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+    
+    paginator = Paginator(persons, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'persons': page_obj,
+        'page_obj': page_obj,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+    
+    return render(request, 'finances.html', context)
 "@
 
 # Create core/conflicts.py
@@ -588,6 +958,1074 @@ extract_specific_columns(
     output_file="core/src/conflicts.xlsx",
     custom_headers=custom_headers
 )
+"@
+
+# Create cats.py
+Set-Content -Path "core/cats.py" -Value @"
+import pandas as pd
+from datetime import datetime
+
+# Shared constants and functions
+TRM_DICT = {
+    2020: 3432.50,
+    2021: 3981.16,
+    2022: 4810.20,
+    2023: 4780.38,
+    2024: 4409.00
+}
+
+CURRENCY_RATES = {
+    2020: {
+        'EUR': 1.141, 'GBP': 1.280, 'AUD': 0.690, 'CAD': 0.746,
+        'HNL': 0.0406, 'AWG': 0.558, 'DOP': 0.0172, 'PAB': 1.000,
+        'CLP': 0.00126, 'CRC': 0.00163, 'ARS': 0.0119, 'ANG': 0.558,
+        'COP': 0.00026,  'BBD': 0.50, 'MXN': 0.0477, 'BOB': 0.144, 'BSD': 1.00,
+        'GYD': 0.0048, 'UYU': 0.025, 'DKK': 0.146, 'KYD': 1.20, 'BMD': 1.00, 
+        'VEB': 0.0000000248, 'VES': 0.000000248, 'BRL': 0.187, 'NIO': 0.0278
+    },
+    2021: {
+        'EUR': 1.183, 'GBP': 1.376, 'AUD': 0.727, 'CAD': 0.797,
+        'HNL': 0.0415, 'AWG': 0.558, 'DOP': 0.0176, 'PAB': 1.000,
+        'CLP': 0.00118, 'CRC': 0.00156, 'ARS': 0.00973, 'ANG': 0.558,
+        'COP': 0.00027, 'BBD': 0.50, 'MXN': 0.0492, 'BOB': 0.141, 'BSD': 1.00,
+        'GYD': 0.0047, 'UYU': 0.024, 'DKK': 0.155, 'KYD': 1.20, 'BMD': 1.00,
+        'VEB': 0.00000000002, 'VES': 0.00000002, 'BRL': 0.192, 'NIO': 0.0285
+    },
+    2022: {
+        'EUR': 1.051, 'GBP': 1.209, 'AUD': 0.688, 'CAD': 0.764,
+        'HNL': 0.0408, 'AWG': 0.558, 'DOP': 0.0181, 'PAB': 1.000,
+        'CLP': 0.00117, 'CRC': 0.00155, 'ARS': 0.00597, 'ANG': 0.558,
+        'COP': 0.00021, 'BBD': 0.50, 'MXN': 0.0497, 'BOB': 0.141, 'BSD': 1.00,
+        'GYD': 0.0047, 'UYU': 0.025, 'DKK': 0.141, 'KYD': 1.20, 'BMD': 1.00,
+        'VEB': 0, 'VES': 0.000000001, 'BRL': 0.196, 'NIO': 0.0267
+    },
+    2023: {
+        'EUR': 1.096, 'GBP': 1.264, 'AUD': 0.676, 'CAD': 0.741,
+        'HNL': 0.0406, 'AWG': 0.558, 'DOP': 0.0177, 'PAB': 1.000,
+        'CLP': 0.00121, 'CRC': 0.00187, 'ARS': 0.00275, 'ANG': 0.558,
+        'COP': 0.00022, 'BBD': 0.50, 'MXN': 0.0564, 'BOB': 0.143, 'BSD': 1.00,
+        'GYD': 0.0047, 'UYU': 0.025, 'DKK': 0.148, 'KYD': 1.20, 'BMD': 1.00,
+        'VEB': 0, 'VES': 0.000000001, 'BRL': 0.194, 'NIO': 0.0267
+    },
+    2024: {
+        'EUR': 1.093, 'GBP': 1.267, 'AUD': 0.674, 'CAD': 0.742,
+        'HNL': 0.0405, 'AWG': 0.558, 'DOP': 0.0170, 'PAB': 1.000,
+        'CLP': 0.00111, 'CRC': 0.00192, 'ARS': 0.00121, 'ANG': 0.558,
+        'COP': 0.00022, 'BBD': 0.50, 'MXN': 0.0547, 'BOB': 0.142, 'BSD': 1.00,
+        'GYD': 0.0047, 'UYU': 0.024, 'DKK': 0.147, 'KYD': 1.20, 'BMD': 1.00,
+        'VEB': 0, 'VES': 0.000000001, 'BRL': 0.190, 'NIO': 0.0260 }
+}
+
+def get_trm(year):
+    """Gets TRM for a given year from the dictionary"""
+    return TRM_DICT.get(year)
+
+def get_exchange_rate(currency_code, year):
+    """Gets exchange rate for a given currency and year from the dictionary"""
+    year_rates = CURRENCY_RATES.get(year)
+    if year_rates:
+        return year_rates.get(currency_code)
+    return None
+
+def get_currency_code(moneda_text):
+    """Extracts the currency code from the 'Texto Moneda' field"""
+    currency_mapping = {
+        'HNL -Lempira hondureño': 'HNL',
+        'EUR - Euro': 'EUR',
+        'AWG - Florín holandés o de Aruba': 'AWG',
+        'DOP - Peso dominicano': 'DOP',
+        'PAB -Balboa panameña': 'PAB', 
+        'CLP - Peso chileno': 'CLP',
+        'CRC - Colón costarricense': 'CRC',
+        'ARS - Peso argentino': 'ARS',
+        'AUD - Dólar australiano': 'AUD',
+        'ANG - Florín holandés': 'ANG',
+        'CAD -Dólar canadiense': 'CAD',
+        'GBP - Libra esterlina': 'GBP',
+        'USD - Dolar estadounidense': 'USD',
+        'COP - Peso colombiano': 'COP',
+        'BBD - Dólar de Barbados o Baja': 'BBD',
+        'MXN - Peso mexicano': 'MXN',
+        'BOB - Boliviano': 'BOB',
+        'BSD - Dolar bahameño': 'BSD',
+        'GYD - Dólar guyanés': 'GYD',
+        'UYU - Peso uruguayo': 'UYU',
+        'DKK - Corona danesa': 'DKK',
+        'KYD - Dólar de las Caimanes': 'KYD',
+        'BMD - Dólar de las Bermudas': 'BMD',
+        'VEB - Bolívar venezolano': 'VEB',  
+        'VES - Bolívar soberano': 'VES',  
+        'BRL - Real brasilero': 'BRL',  
+        'NIO - Córdoba nicaragüense': 'NIO',
+    }
+    return currency_mapping.get(moneda_text)
+
+def get_valid_year(row, periodo_df):
+    """Extracts a valid year, handling missing values and format variations."""
+    try:
+        fkIdPeriodo = pd.to_numeric(row['fkIdPeriodo'], errors='coerce')
+        if pd.isna(fkIdPeriodo):  # Handle missing fkIdPeriodo
+            print(f"Warning: Missing fkIdPeriodo at index {row.name}. Skipping row.")
+            return None
+
+        matching_row = periodo_df[periodo_df['Id'] == fkIdPeriodo]
+        if matching_row.empty:
+            print(f"Warning: No matching Id found in periodoBR.xlsx for fkIdPeriodo {fkIdPeriodo} at index {row.name}. Skipping row.")
+            return None
+
+        year_str = matching_row['Año'].iloc[0]
+
+        try:
+            year = int(year_str)  # Try direct conversion to integer
+            return year
+        except (ValueError, TypeError):
+            try:
+                year = pd.to_datetime(year_str, errors='coerce').year  # Try datetime conversion, handle errors gracefully
+                if pd.isna(year):  # check for NaT which occurs when conversion fails.
+                    raise ValueError  # If conversion failed re-raise a ValueError.
+                return year
+
+            except ValueError:
+                print(f"Warning: Invalid year format '{year_str}' for fkIdPeriodo {fkIdPeriodo} at index {row.name}. Skipping row.")
+                return None
+
+    except Exception as e:
+        print(f"Error in get_valid_year for fkIdPeriodo {fkIdPeriodo} at index {row.name}: {e}")
+        return None
+
+def analyze_banks(file_path, output_file_path, periodo_file_path):
+    """Analyze bank account data"""
+    df = pd.read_excel(file_path)
+    periodo_df = pd.read_excel(periodo_file_path)
+
+    maintain_columns = [
+        'fkIdPeriodo', 'fkIdEstado',
+        'Año Creación', 'Año Envío', 'Usuario',
+        'Nombre', 'Compañía', 'Cargo', 'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+        'Banco - Entidad', 'Banco - Tipo Cuenta', 'Texto Moneda',
+        'Banco - fkIdPaís', 'Banco - Nombre País',
+        'Banco - Saldo', 'Banco - Comentario'
+    ]
+    
+    banks_df = df.loc[df['RUBRO DE DECLARACIÓN'] == 'Banco', maintain_columns].copy()
+    banks_df = banks_df[banks_df['fkIdEstado'] != 1]
+    
+    banks_df['Banco - Saldo COP'] = 0.0
+    banks_df['TRM Aplicada'] = None
+    banks_df['Tasa USD'] = None
+    banks_df['Año Declaración'] = None 
+    
+    for index, row in banks_df.iterrows():
+        try:
+            year = get_valid_year(row, periodo_df)
+            if year is None:
+                print(f"Warning: Could not determine valid year for index {index} and fkIdPeriodo {row['fkIdPeriodo']}. Skipping row.")
+                banks_df.loc[index, 'Año Declaración'] = "Año no encontrado"
+                continue 
+                
+            banks_df.loc[index, 'Año Declaración'] = year
+            currency_code = get_currency_code(row['Texto Moneda'])
+            
+            if currency_code == 'COP':
+                banks_df.loc[index, 'Banco - Saldo COP'] = float(row['Banco - Saldo'])
+                banks_df.loc[index, 'TRM Aplicada'] = 1.0
+                banks_df.loc[index, 'Tasa USD'] = None
+                continue
+                
+            if currency_code:
+                trm = get_trm(year)
+                usd_rate = 1.0 if currency_code == 'USD' else get_exchange_rate(currency_code, year)
+                
+                if trm and usd_rate:
+                    usd_amount = float(row['Banco - Saldo']) * usd_rate
+                    cop_amount = usd_amount * trm
+                    
+                    banks_df.loc[index, 'Banco - Saldo COP'] = cop_amount
+                    banks_df.loc[index, 'TRM Aplicada'] = trm
+                    banks_df.loc[index, 'Tasa USD'] = usd_rate
+                else:
+                    print(f"Warning: Missing conversion rates for {currency_code} in {year} at index {index}")
+            else:
+                print(f"Warning: Unknown currency format '{row['Texto Moneda']}' at index {index}")
+                
+        except Exception as e:
+            print(f"Warning: Error processing row at index {index}: {e}")
+            banks_df.loc[index, 'Año Declaración'] = "Error de procesamiento"
+            continue
+    
+    banks_df.to_excel(output_file_path, index=False)
+
+def analyze_debts(file_path, output_file_path, periodo_file_path):
+    """Analyze debts data"""
+    df = pd.read_excel(file_path)
+    periodo_df = pd.read_excel(periodo_file_path)
+
+    maintain_columns = [
+        'fkIdPeriodo', 'fkIdEstado',
+        'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
+        'Compañía', 'Cargo', 'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+        'Pasivos - Entidad Personas',
+        'Pasivos - Tipo Obligación', 'fkIdMoneda', 'Texto Moneda',
+        'Pasivos - Valor', 'Pasivos - Comentario', 'Pasivos - Valor COP'
+    ]
+    
+    debts_df = df.loc[df['RUBRO DE DECLARACIÓN'] == 'Pasivo', maintain_columns].copy()
+    debts_df = debts_df[debts_df['fkIdEstado'] != 1]
+    
+    debts_df['Pasivos - Valor COP'] = 0.0
+    debts_df['TRM Aplicada'] = None
+    debts_df['Tasa USD'] = None
+    debts_df['Año Declaración'] = None 
+    
+    for index, row in debts_df.iterrows():
+        try:
+            year = get_valid_year(row, periodo_df)
+            if year is None:
+                print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
+                continue
+            
+            debts_df.loc[index, 'Año Declaración'] = year
+            currency_code = get_currency_code(row['Texto Moneda'])
+            
+            if currency_code == 'COP':
+                debts_df.loc[index, 'Pasivos - Valor COP'] = float(row['Pasivos - Valor'])
+                debts_df.loc[index, 'TRM Aplicada'] = 1.0
+                debts_df.loc[index, 'Tasa USD'] = None
+                continue
+            
+            if currency_code:
+                trm = get_trm(year)
+                usd_rate = 1.0 if currency_code == 'USD' else get_exchange_rate(currency_code, year)
+                
+                if trm and usd_rate:
+                    usd_amount = float(row['Pasivos - Valor']) * usd_rate
+                    cop_amount = usd_amount * trm
+                    
+                    debts_df.loc[index, 'Pasivos - Valor COP'] = cop_amount
+                    debts_df.loc[index, 'TRM Aplicada'] = trm
+                    debts_df.loc[index, 'Tasa USD'] = usd_rate
+                else:
+                    print(f"Warning: Missing conversion rates for {currency_code} in {year} at index {index}")
+            else:
+                print(f"Warning: Unknown currency format '{row['Texto Moneda']}' at index {index}")
+                
+        except Exception as e:
+            print(f"Warning: Error processing row at index {index}: {e}")
+            debts_df.loc[index, 'Año Declaración'] = "Error de procesamiento"
+            continue
+
+    debts_df.to_excel(output_file_path, index=False)
+
+def analyze_goods(file_path, output_file_path, periodo_file_path):
+    """Analyze goods/patrimony data"""
+    df = pd.read_excel(file_path)
+    periodo_df = pd.read_excel(periodo_file_path)
+
+    maintain_columns = [
+        'fkIdPeriodo', 'fkIdEstado',
+        'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
+        'Compañía', 'Cargo', 'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+        'Patrimonio - Activo', 'Patrimonio - % Propiedad',
+        'Patrimonio - Propietario', 'Patrimonio - Valor Comercial',
+        'Patrimonio - Comentario',
+        'Patrimonio - Valor Comercial COP', 'Texto Moneda'
+    ]
+    
+    goods_df = df.loc[df['RUBRO DE DECLARACIÓN'] == 'Patrimonio', maintain_columns].copy()
+    goods_df = goods_df[goods_df['fkIdEstado'] != 1]
+    
+    goods_df['Patrimonio - Valor COP'] = 0.0
+    goods_df['TRM Aplicada'] = None
+    goods_df['Tasa USD'] = None
+    goods_df['Año Declaración'] = None 
+    
+    for index, row in goods_df.iterrows():
+        try:
+            year = get_valid_year(row, periodo_df)
+            if year is None:
+                print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
+                continue
+                
+            goods_df.loc[index, 'Año Declaración'] = year
+            currency_code = get_currency_code(row['Texto Moneda'])
+            
+            if currency_code == 'COP':
+                goods_df.loc[index, 'Patrimonio - Valor COP'] = float(row['Patrimonio - Valor Comercial'])
+                goods_df.loc[index, 'TRM Aplicada'] = 1.0
+                goods_df.loc[index, 'Tasa USD'] = None
+                continue
+            
+            if currency_code:
+                trm = get_trm(year)
+                usd_rate = 1.0 if currency_code == 'USD' else get_exchange_rate(currency_code, year)
+                
+                if trm and usd_rate:
+                    usd_amount = float(row['Patrimonio - Valor Comercial']) * usd_rate
+                    cop_amount = usd_amount * trm
+                    
+                    goods_df.loc[index, 'Patrimonio - Valor COP'] = cop_amount
+                    goods_df.loc[index, 'TRM Aplicada'] = trm
+                    goods_df.loc[index, 'Tasa USD'] = usd_rate
+                else:
+                    print(f"Warning: Missing conversion rates for {currency_code} in {year} at index {index}")
+            else:
+                print(f"Warning: Unknown currency format '{row['Texto Moneda']}' at index {index}")
+                
+        except Exception as e:
+            print(f"Warning: Error processing row at index {index}: {e}")
+            continue
+        
+    goods_df['Patrimonio - Valor Corregido'] = goods_df['Patrimonio - Valor COP'] * (goods_df['Patrimonio - % Propiedad'] / 100)
+    
+    # Rename columns for consistency
+    rename_dict = {
+        'Patrimonio - Valor Corregido': 'Bienes - Valor Corregido',
+        'Patrimonio - Valor Comercial COP': 'Bienes - Valor Comercial COP',
+        'Patrimonio - Comentario': 'Bienes - Comentario',
+        'Patrimonio - Valor Comercial': 'Bienes - Valor Comercial',
+        'Patrimonio - Propietario': 'Bienes - Propietario',
+        'Patrimonio - % Propiedad': 'Bienes - % Propiedad',
+        'Patrimonio - Activo': 'Bienes - Activo',
+        'Patrimonio - Valor COP': 'Bienes - Valor COP'
+    }
+    goods_df = goods_df.rename(columns=rename_dict)
+    
+    goods_df.to_excel(output_file_path, index=False)
+
+def analyze_incomes(file_path, output_file_path, periodo_file_path):
+    """Analyze income data"""
+    df = pd.read_excel(file_path)
+    periodo_df = pd.read_excel(periodo_file_path)
+
+    maintain_columns = [
+        'fkIdPeriodo', 'fkIdEstado',
+        'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
+        'Compañía', 'Cargo', 'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+        'Ingresos - fkIdConcepto', 'Ingresos - Texto Concepto',
+        'Ingresos - Valor', 'Ingresos - Comentario', 'Ingresos - Otros',
+        'Ingresos - Valor_COP', 'Texto Moneda'
+    ]
+
+    incomes_df = df.loc[df['RUBRO DE DECLARACIÓN'] == 'Ingreso', maintain_columns].copy()
+    incomes_df = incomes_df[incomes_df['fkIdEstado'] != 1]
+    
+    incomes_df['Ingresos - Valor COP'] = 0.0
+    incomes_df['TRM Aplicada'] = None
+    incomes_df['Tasa USD'] = None
+    incomes_df['Año Declaración'] = None 
+    
+    for index, row in incomes_df.iterrows():
+        try:
+            year = get_valid_year(row, periodo_df)
+            if year is None:
+                print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
+                continue
+            
+            incomes_df.loc[index, 'Año Declaración'] = year
+            currency_code = get_currency_code(row['Texto Moneda'])
+            
+            if currency_code == 'COP':
+                incomes_df.loc[index, 'Ingresos - Valor COP'] = float(row['Ingresos - Valor'])
+                incomes_df.loc[index, 'TRM Aplicada'] = 1.0
+                incomes_df.loc[index, 'Tasa USD'] = None
+                continue
+            
+            if currency_code:
+                trm = get_trm(year)
+                usd_rate = 1.0 if currency_code == 'USD' else get_exchange_rate(currency_code, year)
+                
+                if trm and usd_rate:
+                    usd_amount = float(row['Ingresos - Valor']) * usd_rate
+                    cop_amount = usd_amount * trm
+                    
+                    incomes_df.loc[index, 'Ingresos - Valor COP'] = cop_amount
+                    incomes_df.loc[index, 'TRM Aplicada'] = trm
+                    incomes_df.loc[index, 'Tasa USD'] = usd_rate
+                else:
+                    print(f"Warning: Missing conversion rates for {currency_code} in {year} at index {index}")
+            else:
+                print(f"Warning: Unknown currency format '{row['Texto Moneda']}' at index {index}")
+                
+        except Exception as e:
+            print(f"Warning: Error processing row at index {index}: {e}")
+            continue
+    
+    incomes_df.to_excel(output_file_path, index=False)
+
+def analyze_investments(file_path, output_file_path, periodo_file_path):
+    """Analyze investment data"""
+    df = pd.read_excel(file_path)
+    periodo_df = pd.read_excel(periodo_file_path)
+
+    maintain_columns = [
+        'fkIdPeriodo', 'fkIdEstado',
+        'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
+        'Compañía', 'Cargo', 'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+        'Inversiones - Tipo Inversión', 'Inversiones - Entidad',
+        'Inversiones - Valor', 'Inversiones - Comentario',
+        'Inversiones - Valor COP', 'Texto Moneda'
+    ]
+    
+    invest_df = df.loc[df['RUBRO DE DECLARACIÓN'] == 'Inversión', maintain_columns].copy()
+    invest_df = invest_df[invest_df['fkIdEstado'] != 1]
+    
+    invest_df['Inversiones - Valor COP'] = 0.0
+    invest_df['TRM Aplicada'] = None
+    invest_df['Tasa USD'] = None
+    invest_df['Año Declaración'] = None 
+    
+    for index, row in invest_df.iterrows():
+        try:
+            year = get_valid_year(row, periodo_df)
+            if year is None:
+                print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
+                continue
+            
+            invest_df.loc[index, 'Año Declaración'] = year
+            currency_code = get_currency_code(row['Texto Moneda'])
+            
+            if currency_code == 'COP':
+                invest_df.loc[index, 'Inversiones - Valor COP'] = float(row['Inversiones - Valor'])
+                invest_df.loc[index, 'TRM Aplicada'] = 1.0
+                invest_df.loc[index, 'Tasa USD'] = None
+                continue
+            
+            if currency_code:
+                trm = get_trm(year)
+                usd_rate = 1.0 if currency_code == 'USD' else get_exchange_rate(currency_code, year)
+                
+                if trm and usd_rate:
+                    usd_amount = float(row['Inversiones - Valor']) * usd_rate
+                    cop_amount = usd_amount * trm
+                    
+                    invest_df.loc[index, 'Inversiones - Valor COP'] = cop_amount
+                    invest_df.loc[index, 'TRM Aplicada'] = trm
+                    invest_df.loc[index, 'Tasa USD'] = usd_rate
+                else:
+                    print(f"Warning: Missing conversion rates for {currency_code} in {year} at index {index}")
+            else:
+                print(f"Warning: Unknown currency format '{row['Texto Moneda']}' at index {index}")
+                
+        except Exception as e:
+            print(f"Warning: Error processing row at index {index}: {e}")
+            continue
+    
+    invest_df.to_excel(output_file_path, index=False)
+
+def run_all_analyses():
+    """Run all analysis functions with their respective file paths"""
+    file_path = 'core/src/data.xlsx'
+    periodo_file_path = 'core/src/periodoBR.xlsx'
+    
+    analyze_banks(file_path, 'core/src/banks.xlsx', periodo_file_path)
+    analyze_debts(file_path, 'core/src/debts.xlsx', periodo_file_path)
+    analyze_goods(file_path, 'core/src/goods.xlsx', periodo_file_path)
+    analyze_incomes(file_path, 'core/src/incomes.xlsx', periodo_file_path)
+    analyze_investments(file_path, 'core/src/investments.xlsx', periodo_file_path)
+
+if __name__ == "__main__":
+    run_all_analyses()
+"@
+
+# Create nets.py
+Set-Content -Path "core/nets.py" -Value @"
+import pandas as pd
+
+# Common columns used across all analyses
+COMMON_COLUMNS = [
+    'Usuario', 'Nombre', 'Compañía', 'Cargo',
+    'fkIdPeriodo', 'fkIdEstado',
+    'Año Creación', 'Año Envío',
+    'RUBRO DE DECLARACIÓN', 'fkIdDeclaracion',
+    'Año Declaración'
+]
+
+# Base groupby columns for summaries
+BASE_GROUPBY = ['Usuario', 'Nombre', 'Compañía', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 'Año Creación']
+
+def analyze_banks(file_path, output_file_path):
+    """Analyze bank accounts data"""
+    df = pd.read_excel(file_path)
+
+    # Specific columns for banks
+    bank_columns = [
+        'Banco - Entidad', 'Banco - Tipo Cuenta',
+        'Banco - fkIdPaís', 'Banco - Nombre País',
+        'Banco - Saldo', 'Banco - Comentario',
+        'Banco - Saldo COP'
+    ]
+    
+    df = df[COMMON_COLUMNS + bank_columns]
+    
+    # Create a temporary combination column for counting
+    df_temp = df.copy()
+    df_temp['Bank_Account_Combo'] = df['Banco - Entidad'] + "|" + df['Banco - Tipo Cuenta']
+    
+    # Perform all aggregations
+    summary = df_temp.groupby(BASE_GROUPBY).agg(
+        **{
+            'Cant_Bancos': pd.NamedAgg(column='Banco - Entidad', aggfunc='nunique'),
+            'Cant_Cuentas': pd.NamedAgg(column='Bank_Account_Combo', aggfunc='nunique'),
+            'Banco - Saldo COP': pd.NamedAgg(column='Banco - Saldo COP', aggfunc='sum')
+        }
+    ).reset_index()
+
+    summary.to_excel(output_file_path, index=False)
+    return summary
+
+def analyze_debts(file_path, output_file_path):
+    """Analyze debts data"""
+    df = pd.read_excel(file_path)
+
+    # Specific columns for debts
+    debt_columns = [
+        'Pasivos - Entidad Personas', 'Pasivos - Tipo Obligación', 
+        'Pasivos - Valor', 'Pasivos - Comentario',
+        'Pasivos - Valor COP', 'Texto Moneda'
+    ]
+    
+    df = df[COMMON_COLUMNS + debt_columns]
+    
+    # Calculate total Pasivos and count occurrences
+    summary = df.groupby(BASE_GROUPBY).agg({      
+        'Pasivos - Valor COP': 'sum',
+        'Pasivos - Entidad Personas': 'count'
+    }).reset_index()
+
+    # Rename columns for clarity
+    summary = summary.rename(columns={
+        'Pasivos - Entidad Personas': 'Cant_Deudas',
+        'Pasivos - Valor COP': 'Total Pasivos'
+    })
+
+    summary.to_excel(output_file_path, index=False)
+    return summary
+
+def analyze_goods(file_path, output_file_path):
+    """Analyze goods/assets data"""
+    df = pd.read_excel(file_path)
+    
+    # Specific columns for goods
+    goods_columns = [
+        'Bienes - Activo', 'Bienes - % Propiedad',
+        'Bienes - Propietario', 'Bienes - Valor Comercial',
+        'Bienes - Comentario', 'Bienes - Valor Comercial COP',
+        'Bienes - Valor Corregido'
+    ]
+    
+    df = df[COMMON_COLUMNS + goods_columns]
+
+    summary = df.groupby(BASE_GROUPBY).agg({
+        'Bienes - Valor Corregido': 'sum',
+        'Bienes - Activo': 'count' 
+    }).reset_index()
+
+    # Rename columns for clarity
+    summary = summary.rename(columns={
+        'Bienes - Activo': 'Cant_Bienes',
+        'Bienes - Valor Corregido': 'Total Bienes'
+    })
+
+    summary.to_excel(output_file_path, index=False) 
+    return summary
+
+def analyze_incomes(file_path, output_file_path):
+    """Analyze income data"""
+    df = pd.read_excel(file_path)
+    
+    # Specific columns for incomes
+    income_columns = [
+        'Ingresos - fkIdConcepto', 'Ingresos - Texto Concepto',
+        'Ingresos - Valor', 'Ingresos - Comentario',
+        'Ingresos - Otros', 'Ingresos - Valor COP',
+        'Texto Moneda'
+    ]
+
+    df = df[COMMON_COLUMNS + income_columns]
+    
+    # Calculate Ingresos and count occurrences
+    summary = df.groupby(BASE_GROUPBY).agg({
+        'Ingresos - Valor COP': 'sum',
+        'Ingresos - Texto Concepto': 'count'
+    }).reset_index()
+
+    # Rename columns for clarity
+    summary = summary.rename(columns={
+        'Ingresos - Texto Concepto': 'Cant_Ingresos',
+        'Ingresos - Valor COP': 'Total Ingresos'
+    })
+
+    summary.to_excel(output_file_path, index=False)
+    return summary
+
+def analyze_investments(file_path, output_file_path):
+    """Analyze investments data"""
+    df = pd.read_excel(file_path)
+    
+    # Specific columns for investments
+    invest_columns = [
+        'Inversiones - Tipo Inversión', 'Inversiones - Entidad',
+        'Inversiones - Valor', 'Inversiones - Comentario',
+        'Inversiones - Valor COP', 'Texto Moneda'
+    ]
+    
+    df = df[COMMON_COLUMNS + invest_columns]
+    
+    # Calculate total Inversiones and count occurrences
+    summary = df.groupby(BASE_GROUPBY + ['Inversiones - Tipo Inversión']).agg( 
+        {'Inversiones - Valor COP': 'sum',
+         'Inversiones - Tipo Inversión': 'count'}
+    ).rename(columns={
+        'Inversiones - Tipo Inversión': 'Cant_Inversiones',
+        'Inversiones - Valor COP': 'Total Inversiones'
+    }).reset_index()
+    
+    summary.to_excel(output_file_path, index=False)
+    return summary 
+
+def calculate_assets(banks_file, goods_file, invests_file, output_file):
+    """Calculate total assets by combining banks, goods and investments"""
+    banks = pd.read_excel(banks_file)
+    goods = pd.read_excel(goods_file)
+    invests = pd.read_excel(invests_file)
+
+    # Group investments by base columns (summing across types)
+    invests_grouped = invests.groupby(BASE_GROUPBY).agg({
+        'Total Inversiones': 'sum',
+        'Cant_Inversiones': 'sum'
+    }).reset_index()
+
+    # Merge all three dataframes
+    merged = pd.merge(goods, banks, on=BASE_GROUPBY, how='outer')
+    merged = pd.merge(merged, invests_grouped, on=BASE_GROUPBY, how='outer')
+    merged.fillna(0, inplace=True)
+
+    # Calculate total assets
+    merged['Total Activos'] = (
+        merged['Total Bienes'] + 
+        merged['Banco - Saldo COP'] + 
+        merged['Total Inversiones']
+    )
+
+    # Reorder and rename columns
+    final_columns = BASE_GROUPBY + [
+        'Total Bienes', 'Cant_Bienes',
+        'Banco - Saldo COP', 'Cant_Bancos', 'Cant_Cuentas',
+        'Total Inversiones', 'Cant_Inversiones',
+        'Total Activos'
+    ]
+    merged = merged[final_columns]
+
+    merged.to_excel(output_file, index=False)
+    return merged
+
+def calculate_net_worth(debts_file, assets_file, output_file):
+    """Calculate net worth by combining assets and debts"""
+    debts = pd.read_excel(debts_file)
+    assets = pd.read_excel(assets_file)
+
+    # Merge the summaries
+    merged = pd.merge(
+        assets, 
+        debts, 
+        on=BASE_GROUPBY, 
+        how='outer'
+    )
+    merged.fillna(0, inplace=True)
+    
+    # Calculate net worth
+    merged['Total Patrimonio'] = merged['Total Activos'] - merged['Total Pasivos']
+    
+    # Final column order
+    final_columns = BASE_GROUPBY + [
+        'Total Activos',
+        'Cant_Bienes',
+        'Cant_Bancos',
+        'Cant_Cuentas',
+        'Cant_Inversiones',
+        'Total Pasivos',
+        'Cant_Deudas',
+        'Total Patrimonio'
+    ]
+    merged = merged[final_columns]
+    
+    merged.to_excel(output_file, index=False)
+    return merged
+
+def run_all_analyses():
+    """Run all analyses in sequence with default file paths"""
+    # Individual analyses
+    bank_summary = analyze_banks(
+        'core/src/banks.xlsx',
+        'core/src/bankNets.xlsx'
+    )
+    
+    debt_summary = analyze_debts(
+        'core/src/debts.xlsx',
+        'core/src/debtNets.xlsx'
+    )
+    
+    goods_summary = analyze_goods(
+        'core/src/goods.xlsx',
+        'core/src/goodNets.xlsx'
+    )
+    
+    income_summary = analyze_incomes(
+        'core/src/incomes.xlsx',
+        'core/src/incomeNets.xlsx'
+    )
+    
+    invest_summary = analyze_investments(
+        'core/src/investments.xlsx',
+        'core/src/investNets.xlsx'
+    )
+    
+    # Combined analyses
+    assets_summary = calculate_assets(
+        'core/src/bankNets.xlsx',
+        'core/src/goodNets.xlsx',
+        'core/src/investNets.xlsx',
+        'core/src/assetNets.xlsx'
+    )
+    
+    net_worth_summary = calculate_net_worth(
+        'core/src/debtNets.xlsx',
+        'core/src/assetNets.xlsx',
+        'core/src/worthNets.xlsx'
+    )
+    
+    return {
+        'bank_summary': bank_summary,
+        'debt_summary': debt_summary,
+        'goods_summary': goods_summary,
+        'income_summary': income_summary,
+        'invest_summary': invest_summary,
+        'assets_summary': assets_summary,
+        'net_worth_summary': net_worth_summary
+    }
+
+if __name__ == '__main__':
+    # Run all analyses when script is executed
+    results = run_all_analyses()
+    print("All nets analyses completed successfully!")
+"@
+
+# Create trends.py
+Set-Content -Path "core/trends.py" -Value @"
+import pandas as pd
+
+def get_trend_symbol(value):
+    """Determine the trend symbol based on the percentage change."""
+    try:
+        value_float = float(value.strip('%')) / 100
+        if pd.isna(value_float):
+            return "➡️"
+        elif value_float > 0.1:  # more than 10% increase
+            return "📈"
+        elif value_float < -0.1:  # more than 10% decrease
+            return "📉"
+        else:
+            return "➡️"  # relatively stable
+    except Exception:
+        return "➡️"
+
+def calculate_variation(df, column):
+    """Calculate absolute and relative variations for a specific column."""
+    df = df.sort_values(by=['Usuario', 'Año Declaración'])
+    
+    absolute_col = f'{column} Var. Abs.'
+    relative_col = f'{column} Var. Rel.'
+    
+    df[absolute_col] = df.groupby('Usuario')[column].diff()
+    
+    df[relative_col] = (
+        df.groupby('Usuario')[column]
+        .ffill()
+        .pct_change(fill_method=None) * 100
+    )
+    
+    df[relative_col] = df[relative_col].apply(lambda x: f"{x:.2f}%" if not pd.isna(x) else "0.00%")
+    
+    return df
+
+def embed_trend_symbols(df, columns):
+    """Add trend symbols to variation columns."""
+    for col in columns:
+        absolute_col = f'{col} Var. Abs.'
+        relative_col = f'{col} Var. Rel.'
+        
+        if absolute_col in df.columns:
+            df[absolute_col] = df.apply(
+                lambda row: f"{row[absolute_col]:.2f} {get_trend_symbol(row[relative_col])}" 
+                if pd.notna(row[absolute_col]) else "N/A ➡️",
+                axis=1
+            )
+        
+        if relative_col in df.columns:
+            df[relative_col] = df.apply(
+                lambda row: f"{row[relative_col]} {get_trend_symbol(row[relative_col])}", 
+                axis=1
+            )
+    
+    return df
+
+def calculate_leverage(df):
+    """Calculate financial leverage."""
+    df['Apalancamiento'] = (df['Patrimonio'] / df['Activos']) * 100
+    return df
+
+def calculate_debt_level(df):
+    """Calculate debt level."""
+    df['Endeudamiento'] = (df['Pasivos'] / df['Activos']) * 100
+    return df
+
+def process_asset_data(df_assets):
+    """Process asset data with variations and trends."""
+    df_assets_grouped = df_assets.groupby(['Usuario', 'Año Declaración']).agg(
+        BancoSaldo=('Banco - Saldo COP', 'sum'),
+        Bienes=('Total Bienes', 'sum'),
+        Inversiones=('Total Inversiones', 'sum')
+    ).reset_index()
+
+    for column in ['BancoSaldo', 'Bienes', 'Inversiones']:
+        df_assets_grouped = calculate_variation(df_assets_grouped, column)
+    
+    df_assets_grouped = embed_trend_symbols(df_assets_grouped, ['BancoSaldo', 'Bienes', 'Inversiones'])
+    return df_assets_grouped
+
+def process_income_data(df_income):
+    """Process income data with variations and trends."""
+    df_income_grouped = df_income.groupby(['Usuario', 'Año Declaración']).agg(
+        Ingresos=('Total Ingresos', 'sum'),
+        Cant_Ingresos=('Cant_Ingresos', 'sum')
+    ).reset_index()
+
+    df_income_grouped = calculate_variation(df_income_grouped, 'Ingresos')
+    df_income_grouped = embed_trend_symbols(df_income_grouped, ['Ingresos'])
+    return df_income_grouped
+
+def calculate_yearly_variations(df):
+    """Calculate yearly variations for all columns."""
+    df = df.sort_values(['Usuario', 'Año Declaración'])
+    
+    columns_to_analyze = [
+        'Activos', 'Pasivos', 'Patrimonio', 
+        'Apalancamiento', 'Endeudamiento',
+        'BancoSaldo', 'Bienes', 'Inversiones', 'Ingresos',
+        'Cant_Ingresos'
+    ]
+    
+    new_columns = {}
+    
+    for column in [col for col in columns_to_analyze if col in df.columns]:
+        grouped = df.groupby('Usuario')[column]
+        
+        for year in [2021, 2022, 2023, 2024]:
+            abs_col = f'{year} {column} Var. Abs.'
+            new_columns[abs_col] = grouped.diff()
+            
+            rel_col = f'{year} {column} Var. Rel.'
+            pct_change = grouped.pct_change(fill_method=None) * 100
+            new_columns[rel_col] = pct_change.apply(
+                lambda x: f"{x:.2f}%" if not pd.isna(x) else "0.00%"
+            )
+    
+    df = pd.concat([df, pd.DataFrame(new_columns)], axis=1)
+    
+    for column in [col for col in columns_to_analyze if col in df.columns]:
+        for year in [2021, 2022, 2023, 2024]:
+            abs_col = f'{year} {column} Var. Abs.'
+            rel_col = f'{year} {column} Var. Rel.'
+            
+            if abs_col in df.columns:
+                df[abs_col] = df.apply(
+                    lambda row: f"{row[abs_col]:.2f} {get_trend_symbol(row[rel_col])}" 
+                    if pd.notna(row[abs_col]) else "N/A ➡️",
+                    axis=1
+                )
+            if rel_col in df.columns:
+                df[rel_col] = df.apply(
+                    lambda row: f"{row[rel_col]} {get_trend_symbol(row[rel_col])}", 
+                    axis=1
+                )
+    
+    return df
+
+def calculate_sudden_wealth_increase(df):
+    """Calculate sudden wealth increase rate (Aum. Pat. Subito) as decimal with 1 decimal place"""
+    df = df.sort_values(['Usuario', 'Año Declaración'])
+    
+    # Calculate total wealth (Activo + Patrimonio)
+    df['Capital'] = df['Activos'] + df['Patrimonio']
+    
+    # Calculate year-to-year change as decimal
+    df['Aum. Pat. Subito'] = df.groupby('Usuario')['Capital'].pct_change(fill_method=None)
+    
+    # Format as decimal (1 place) with trend symbol
+    df['Aum. Pat. Subito'] = df['Aum. Pat. Subito'].apply(
+        lambda x: f"{x:.1f} {get_trend_symbol(f'{x*100:.1f}%')}" if not pd.isna(x) else "N/A ➡️"
+    )
+    
+    return df
+
+def save_results(df, excel_filename="tables/trends/trends.xlsx"):
+    """Save results to Excel."""
+    try:
+        df.to_excel(excel_filename, index=False)
+        print(f"Data saved to {excel_filename}")
+    except Exception as e:
+        print(f"Error saving file: {e}")
+
+def main():
+    """Main function to process all data and generate analysis files."""
+    try:
+        # Process worth data
+        df_worth = pd.read_excel("core/src/worthNets.xlsx")
+        df_worth = df_worth.rename(columns={
+            'Total Activos': 'Activos',
+            'Total Pasivos': 'Pasivos',
+            'Total Patrimonio': 'Patrimonio'
+        })
+        
+        df_worth = calculate_leverage(df_worth)
+        df_worth = calculate_debt_level(df_worth)
+        df_worth = calculate_sudden_wealth_increase(df_worth)
+        
+        for column in ['Activos', 'Pasivos', 'Patrimonio', 'Apalancamiento', 'Endeudamiento']:
+            df_worth = calculate_variation(df_worth, column)
+        
+        df_worth = embed_trend_symbols(df_worth, ['Activos', 'Pasivos', 'Patrimonio', 'Apalancamiento', 'Endeudamiento'])
+        
+        # Process asset data
+        df_assets = pd.read_excel("core/src/assetNets.xlsx")
+        df_assets_processed = process_asset_data(df_assets)
+        
+        # Process income data
+        df_income = pd.read_excel("core/src/incomeNets.xlsx")
+        df_income_processed = process_income_data(df_income)
+        
+        # Merge all data
+        df_combined = pd.merge(df_worth, df_assets_processed, on=['Usuario', 'Año Declaración'], how='left')
+        df_combined = pd.merge(df_combined, df_income_processed, on=['Usuario', 'Año Declaración'], how='left')
+        
+        # Save basic trends
+        save_results(df_combined, "core/src/trends.xlsx")
+        
+        # The 'df_yearly' calculation and saving to 'overTrends.xlsx' and 'data.json' have been removed.
+        
+    except FileNotFoundError as e:
+        print(f"Error: Required file not found - {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
+"@
+
+# Create core/idTrends.py
+Set-Content -Path "core/idTrends.py" -Value @"
+# idTrends.py
+import pandas as pd
+import os
+from datetime import datetime
+
+def merge_trends_data(personas_file, trends_file, output_file):
+    """
+    Merge personas data with trends data to add Cedula information.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # Load the Excel files
+        personas = pd.read_excel(personas_file)
+        trends = pd.read_excel(trends_file)
+
+        # Standardize column names for merging
+        personas = personas.rename(columns={
+            'NOMBRE COMPLETO': 'Nombre',
+            'CARGO': 'Cargo',
+            'Compania': 'Compañía'
+        })
+        
+        # Ensure consistent naming in trends
+        trends = trends.rename(columns={
+            'Usuario': 'Cedula'  # Temporarily rename Usuario to Cedula
+        })
+
+        # Perform a left join to keep all trends data and add Cedula from personas
+        merged = pd.merge(
+            trends,
+            personas[['Nombre', 'Cargo', 'Compañía', 'Cedula']],
+            on=['Nombre', 'Cargo', 'Compañía'],
+            how='left',
+            suffixes=('_trends', '_personas')
+        )
+
+        # Where we don't have a match from personas, keep the original Cedula (which was Usuario)
+        merged['Cedula'] = merged['Cedula_personas'].combine_first(merged['Cedula_trends'])
+        
+        # Drop the temporary columns
+        merged = merged.drop(columns=['Cedula_trends', 'Cedula_personas'])
+
+        # Define the exact columns we want in the output
+        output_columns = [
+            'Cedula', 'Nombre', 'Compañía', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 
+            'Año Creación', 'Activos', 'Cant_Bienes', 'Cant_Bancos', 'Cant_Cuentas', 
+            'Cant_Inversiones', 'Pasivos', 'Cant_Deudas', 'Patrimonio', 'Apalancamiento', 
+            'Endeudamiento', 'Capital', 'Aum. Pat. Subito', 'Activos Var. Abs.', 
+            'Activos Var. Rel.', 'Pasivos Var. Abs.', 'Pasivos Var. Rel.', 
+            'Patrimonio Var. Abs.', 'Patrimonio Var. Rel.', 'Apalancamiento Var. Abs.', 
+            'Apalancamiento Var. Rel.', 'Endeudamiento Var. Abs.', 'Endeudamiento Var. Rel.', 
+            'BancoSaldo', 'Bienes', 'Inversiones', 'BancoSaldo Var. Abs.', 
+            'BancoSaldo Var. Rel.', 'Bienes Var. Abs.', 'Bienes Var. Rel.', 
+            'Inversiones Var. Abs.', 'Inversiones Var. Rel.', 'Ingresos', 
+            'Cant_Ingresos', 'Ingresos Var. Abs.', 'Ingresos Var. Rel.'
+        ]
+        
+        # Filter to only include columns that exist in both our list and the merged data
+        final_columns = [col for col in output_columns if col in merged.columns]
+        
+        # Create the final dataframe with exactly the columns we want, in order
+        final_df = merged[final_columns]
+
+        # Fill null values with empty string
+        final_df = final_df.fillna('')
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+        # Save to new Excel file
+        final_df.to_excel(output_file, index=False)
+        
+        return True
+
+    except Exception as e:
+        print(f"Error merging trends data: {str(e)}")
+        return False
+
+def main():
+    """Main function to process the data"""
+    try:
+        # Define file paths
+        personas_file = 'core/src/Personas.xlsx'
+        trends_file = 'core/src/trends.xlsx'
+        output_file = 'core/src/idTrends.xlsx'
+        
+        # Run the merge
+        success = merge_trends_data(personas_file, trends_file, output_file)
+        
+        if success:
+            print("Successfully created idTrends.xlsx")
+            return True
+        else:
+            print("Failed to create idTrends.xlsx")
+            return False
+            
+    except Exception as e:
+        print(f"Error in idTrends main: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    main()
 "@
 
 # Update project urls.py with proper admin configuration
@@ -790,8 +2228,108 @@ body {
 .bg-danger {
     background-color: #dc3545 !important;
 }
-
 "@ | Out-File -FilePath "core/static/css/style.css" -Encoding utf8
+
+@"
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 9999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.loading-content {
+    background-color: white;
+    padding: 30px;
+    border-radius: 8px;
+    text-align: center;
+    max-width: 500px;
+    width: 90%;
+}
+
+.progress {
+    height: 20px;
+    margin: 20px 0;
+}
+
+/* Spinner styles for submit buttons */
+.btn .spinner-border {
+    margin-right: 8px;
+}
+"@ | Out-File -FilePath "core/static/css/loading.css" -Encoding utf8
+
+@"
+/* Table container styles */
+.table-container {
+    position: relative;
+    overflow: auto;
+    max-height: calc(100vh - 300px); /* Adjust this value as needed */
+}
+
+.table-fixed-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: white;
+}
+
+.table-fixed-header th {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa; /* Match your table header color */
+    z-index: 20;
+}
+
+/* Add a shadow to the fixed header */
+.table-fixed-header::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -5px;
+    height: 5px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.1), transparent);
+}
+
+/* Styles for fixed columns */
+.table-fixed-column {
+    position: sticky;
+    right: 0;
+    background-color: white;
+    z-index: 5;
+}
+
+.table-fixed-column::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -5px;
+    width: 5px;
+    height: 100%;
+    background: linear-gradient(to right, transparent, rgba(0,0,0,0.1));
+}
+
+/* Adjust the z-index for header cells to stay above fixed column */
+.table-fixed-header th:last-child {
+    z-index: 30;
+}
+
+/* Ensure the fixed column stays visible when scrolling */
+.table-container {
+    overflow: auto;
+}
+
+/* Table hover effects */
+.table-hover tbody tr:hover {
+    background-color: rgba(11, 0, 162, 0.05);
+}
+"@ | Out-File -FilePath "core/static/css/freeze.css" -Encoding utf8
 
 @"
 .loading-overlay {
@@ -879,6 +2417,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet" href="{% static 'css/freeze.css' %}">
 </head>
 <body>
     {% if user.is_authenticated %}
@@ -1272,15 +2811,16 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="card h-100">
             <div class="card-body d-flex flex-column">
                 <!-- Bienes y Rentas -->
+
                 <div class="mb-4 flex-grow-1">
-                    <form method="post" enctype="multipart/form-data">
+                    <form method="post" enctype="multipart/form-data" action="{% url 'import_financials' %}">
                         {% csrf_token %}
                         <div class="mb-3">
                             <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
-                            <div class="form-text">El archivo Excel de Bienes y Rentas debe incluir las columnas: </div>
+                            <div class="form-text">El archivo Excel de Bienes y Rentas debe ser dataHistoricaPBI.xlsx</div>
                             <div class="mb-3">
                                 <input type="password" class="form-control" id="excel_password" name="excel_password">
-                                <div class="form-text">Ingrese la contrasena</div>
+                                <div class="form-text">Ingrese la clave si el archivo esta protegido</div>
                             </div>
                         </div>
                         <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Bienes y Rentas</button>
@@ -1824,7 +3364,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
-                                <a href="/persons/details/{{ conflict.person.cedula }}/" 
+                                <a href="" 
                                    class="btn btn-custom-primary btn-sm"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
@@ -1892,6 +3432,552 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/conflicts.html" -Encoding utf8
+
+# finances template
+@" 
+{% extends "master.html" %}
+
+{% block title %}Bienes y Rentas{% endblock %}
+{% block navbar_title %}Bienes y Rentas{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="/persons/" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="/conflicts/" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="/alerts/" class="btn btn-custom-primary">
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="/persons/import/" class="btn btn-custom-primary" title="Importar">
+        <i class="fas fa-upload"></i>
+    </a>
+    <a href="?{% for key, value in request.GET.items %}{{ key }}={{ value }}&{% endfor %}export=excel" class="btn btn-custom-primary btn-my-green" title="Exportar">
+        <i class="fas fa-file-excel"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search Form -->
+<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+    <div class="card-body">
+        <form method="get" action="." class="row g-3 align-items-center">
+            <!-- General Search -->
+            <div class="col-md-3">
+                <input type="text" 
+                       name="q" 
+                       class="form-control form-control-lg" 
+                       placeholder="Buscar persona..." 
+                       value="{{ request.GET.q }}">
+            </div>
+            
+            <!-- Column Selector -->
+            <div class="col-md-3">
+                <select name="column" class="form-select form-select-lg">
+                    <option value="">Selecciona Columna</option>
+                    <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
+                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aum. Pat. Subito</option>
+                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Rel.</option>
+                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Rel.</option>
+                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Rel.</option>
+                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Rel.</option>
+                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Rel.</option>
+                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>BancoSaldo Var. Rel.</option>
+                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Rel.</option>
+                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Rel.</option>
+                </select>
+            </div>
+            
+            <!-- Operator Selector -->
+            <div class="col-md-2">
+                <select name="operator" class="form-select form-select-lg">
+                    <option value="">Selecciona operador</option>
+                    <option value=">" {% if request.GET.operator == '>' %}selected{% endif %}>Mayor que</option>
+                    <option value="<" {% if request.GET.operator == '<' %}selected{% endif %}>Menor que</option>
+                    <option value="=" {% if request.GET.operator == '=' %}selected{% endif %}>Igual a</option>
+                    <option value=">=" {% if request.GET.operator == '>=' %}selected{% endif %}>Mayor o igual</option>
+                    <option value="<=" {% if request.GET.operator == '<=' %}selected{% endif %}>Menor o igual</option>
+                    <option value="between" {% if request.GET.operator == 'between' %}selected{% endif %}>Entre</option>
+                    <option value="contains" {% if request.GET.operator == 'contains' %}selected{% endif %}>Contiene</option>
+                </select>
+            </div>
+            
+            <!-- Value Input -->
+            <div class="col-md-2">
+                <input type="text" 
+                       name="value" 
+                       class="form-control form-control-lg" 
+                       placeholder="Valor" 
+                       value="{{ request.GET.value }}">
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Persons Table -->
+<div class="card border-0 shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive table-container">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-fixed-header">
+                    <tr>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">-50%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">-50%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">-50%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th class="table-fixed-column"></th>
+                    </tr>
+                    <tr>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">-30%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">-30%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">-30%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th class="table-fixed-column"></th>
+                    </tr>
+                    <tr>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th >Medio</th>
+                        <th >"<="</th>
+                        <th style="background-color: #228B22; "></th>
+                        <th ></th>
+                        <th style="background-color: #228B22;  color: white;">1.5</th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">30%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">30%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">30%</th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">4</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: #228B22; color: white;">>4</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th class="table-fixed-column"></th>
+                    </tr>
+                    <tr>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th >Alto</th>
+                        <th >"<"</th>
+                        <th style="background-color: red;"></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">2</th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">50%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">50%</th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">50%</th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">6</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th style="background-color: red; color: white;">>6</th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th ></th>
+                        <th class="table-fixed-column"></th>
+                    </tr>
+                    <tr>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Revisar
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Nombre
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compania
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargo
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
+                        <th style="color: rgb(0, 0, 0);">Periodo</th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ano_declaracion&sort_direction={% if current_order == 'financial_reports__ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ano
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__aum_pat_subito&sort_direction={% if current_order == 'financial_reports__aum_pat_subito' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Aum. Pat. Subito
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio&sort_direction={% if current_order == 'financial_reports__patrimonio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio_var_rel&sort_direction={% if current_order == 'financial_reports__patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio Var. Rel. % 
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio_var_abs&sort_direction={% if current_order == 'financial_reports__patrimonio_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio Var. Abs. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos&sort_direction={% if current_order == 'financial_reports__activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos_var_rel&sort_direction={% if current_order == 'financial_reports__activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos Var. Rel. %
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos_var_abs&sort_direction={% if current_order == 'financial_reports__activos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos Var. Abs. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos&sort_direction={% if current_order == 'financial_reports__pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos_var_rel&sort_direction={% if current_order == 'financial_reports__pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos Var. Rel. 
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos_var_abs&sort_direction={% if current_order == 'financial_reports__pasivos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos Var. Abs. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_deudas&sort_direction={% if current_order == 'financial_reports__cant_deudas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Deudas
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos&sort_direction={% if current_order == 'financial_reports__ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ingresos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos_var_rel&sort_direction={% if current_order == 'financial_reports__ingresos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ingresos Var. Rel. %
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos_var_abs&sort_direction={% if current_order == 'financial_reports__ingresos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ingresos Var. Abs. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_ingresos&sort_direction={% if current_order == 'financial_reports__cant_ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Ingresos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo&sort_direction={% if current_order == 'financial_reports__banco_saldo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Saldo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo_var_rel&sort_direction={% if current_order == 'financial_reports__banco_saldo_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Var. %
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo_var_abs&sort_direction={% if current_order == 'financial_reports__banco_saldo_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Var. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_cuentas&sort_direction={% if current_order == 'financial_reports__cant_cuentas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Cuentas
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_bancos&sort_direction={% if current_order == 'financial_reports__cant_bancos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Bancos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_valor&sort_direction={% if current_order == 'financial_reports__bienes_valor' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Valor
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_var_rel&sort_direction={% if current_order == 'financial_reports__bienes_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Var. %
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_var_abs&sort_direction={% if current_order == 'financial_reports__bienes_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Var. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_bienes&sort_direction={% if current_order == 'financial_reports__cant_bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Bienes
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_valor&sort_direction={% if current_order == 'financial_reports__inversiones_valor' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Valor
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_var_rel&sort_direction={% if current_order == 'financial_reports__inversiones_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Var. %
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_var_abs&sort_direction={% if current_order == 'financial_reports__inversiones_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Var. $
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_inversiones&sort_direction={% if current_order == 'financial_reports__cant_inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Inversiones
+                            </a>
+                        </th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for person in persons %}
+                        {% for report in person.financial_reports.all %}
+                        <tr {% if person.revisar %}class="table-warning"{% endif %}>
+                            <td>
+                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                    <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                </a>
+                            </td>
+                            <td>{{ person.nombre_completo }}</td>
+                            <td>{{ person.compania }}</td>
+                            <td>{{ person.cargo }}</td>
+                            <td>{{ person.comments|truncatechars:30|default:"" }}</td>
+                            <td>{{ report.fkIdPeriodo|floatformat:"0"|default:"-" }}</td>
+                            <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
+                            <td>{{ report.aum_pat_subito|default:"-" }}</td>
+                            <td>{{ report.patrimonio|default:"-" }}</td>
+                            <td>{{ report.patrimonio_var_rel|default:"-" }}</td>
+                            <td>{{ report.patrimonio_var_abs|default:"-" }}</td>
+                            <td>{{ report.activos|default:"-" }}</td>
+                            <td>{{ report.activos_var_rel|default:"-" }}</td>
+                            <td>{{ report.activos_var_abs|default:"-" }}</td>
+                            <td>{{ report.pasivos|default:"-" }}</td>
+                            <td>{{ report.pasivos_var_rel|default:"-" }}</td>
+                            <td>{{ report.pasivos_var_abs|default:"-" }}</td>
+                            <td>{{ report.cant_deudas|default:"-" }}</td>
+                            <td>{{ report.ingresos|default:"-" }}</td>
+                            <td>{{ report.ingresos_var_rel|default:"-" }}</td>
+                            <td>{{ report.ingresos_var_abs|default:"-" }}</td>
+                            <td>{{ report.cant_ingresos|default:"-" }}</td>
+                            <td>{{ report.banco_saldo|default:"-" }}</td>
+                            <td>{{ report.banco_saldo_var_rel|default:"-" }}</td>
+                            <td>{{ report.banco_saldo_var_abs|default:"-" }}</td>
+                            <td>{{ report.cant_cuentas|default:"-" }}</td>
+                            <td>{{ report.cant_bancos|default:"-" }}</td>
+                            <td>{{ report.bienes|default:"-" }}</td>
+                            <td>{{ report.bienes_var_rel|default:"-" }}</td>
+                            <td>{{ report.bienes_var_abs|default:"-" }}</td>
+                            <td>{{ report.cant_bienes|default:"-" }}</td>
+                            <td>{{ report.inversiones|default:"-" }}</td>
+                            <td>{{ report.inversiones_var_rel|default:"-" }}</td>
+                            <td>{{ report.inversiones_var_abs|default:"-" }}</td>
+                            <td>{{ report.cant_inversiones|default:"-" }}</td>
+                            <td class="table-fixed-column">
+                                <a href="/persons/details/{{ person.cedula }}/" 
+                                   class="btn btn-custom-primary btn-sm"
+                                   title="View details">
+                                    <i class="bi bi-person-vcard-fill"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="14">{{ person.nombre_completo }} - No hay reportes financieros</td>
+                        </tr>
+                        {% endfor %}
+                    {% empty %}
+                        <tr>
+                            <td colspan="14" class="text-center py-4">
+                                {% if request.GET.q or request.GET.column or request.GET.operator or request.GET.value %}
+                                    Sin registros que coincidan con los filtros.
+                                {% else %}
+                                    Sin registros
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+        <div class="p-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                                <span aria-hidden="true">&laquo;&laquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                                <span aria-hidden="true">&raquo;&raquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/finances.html" -Encoding utf8
     
 # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
@@ -1936,7 +4022,6 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'  # Where to redirect after logout
     # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
     python manage.py runserver
-
 }
 
 arpa
