@@ -14,7 +14,7 @@ function arpa {
 
     # Install required Python packages
     python.exe -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool
+    python -m pip install django whitenoise django-bootstrap-v5 openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
@@ -58,12 +58,13 @@ class Person(models.Model):
         return f"{self.nombre_completo} ({self.cedula})"
 
 class Conflict(models.Model):
+    id = models.AutoField(primary_key=True)  
     person = models.ForeignKey(
         Person, 
         on_delete=models.CASCADE, 
         related_name='conflicts',
-        to_field='cedula',  # This specifies to use the 'cedula' field as the foreign key
-        db_column='cedula'  # This makes the database column name match
+        to_field='cedula', 
+        db_column='cedula' 
     )
     fecha_inicio = models.DateField(null=True, blank=True)
     q1 = models.BooleanField(default=False)
@@ -81,54 +82,7 @@ class Conflict(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Conflictos para {self.person.nombre_completo}"
-
-class FinancialReport(models.Model):
-    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='financial_reports')
-    cedula = models.CharField(max_length=20)
-    fkIdPeriodo = models.IntegerField()
-    ano_declaracion = models.IntegerField()
-    ano_creacion = models.IntegerField()
-    activos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    cant_bienes = models.IntegerField(null=True, blank=True)
-    cant_bancos = models.IntegerField(null=True, blank=True)
-    cant_cuentas = models.IntegerField(null=True, blank=True)
-    cant_inversiones = models.IntegerField(null=True, blank=True)
-    pasivos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    cant_deudas = models.IntegerField(null=True, blank=True)
-    patrimonio = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    apalancamiento = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    endeudamiento = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    capital = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    aum_pat_subito = models.CharField(max_length=100, null=True, blank=True)
-    activos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    activos_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    pasivos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    pasivos_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    patrimonio_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    patrimonio_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    apalancamiento_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    apalancamiento_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    endeudamiento_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    endeudamiento_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    banco_saldo = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    bienes = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    inversiones = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    banco_saldo_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    banco_saldo_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    bienes_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    bienes_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    inversiones_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    inversiones_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    ingresos = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    cant_ingresos = models.IntegerField(null=True, blank=True)
-    ingresos_var_abs = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    ingresos_var_rel = models.CharField(max_length=100, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Reporte financiero para {self.person.nombre_completo} ({self.ano_declaracion})"
+        return f"Conflictos para {self.person.nombre_completo} (ID: {self.id})"  
 "@
 
 # Create admin.py with enhanced configuration
@@ -137,8 +91,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.urls import reverse
-from django.utils.safestring import mark_safe
-from core.models import Person, Conflict, FinancialReport
+from core.models import Person, Conflict
 
 class ConflictForm(forms.ModelForm):
     class Meta:
@@ -159,14 +112,14 @@ class PersonAdmin(admin.ModelAdmin):
     list_editable = ('revisar',)
     
     # Custom fields to show in detail view
-    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link')
+    readonly_fields = ('cedula_with_actions', 'conflicts_link')
     
     fieldsets = (
         (None, {
             'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
         }),
         ('Related Records', {
-            'fields': ('conflicts_link', 'financial_reports_link'),
+            'fields': ('conflicts_link',),
             'classes': ('collapse',)
         }),
     )
@@ -218,34 +171,6 @@ class PersonAdmin(admin.ModelAdmin):
         return "-"
     conflicts_link.short_description = 'Conflict Records'
     conflicts_link.allow_tags = True
-    
-    def financial_reports_link(self, obj):
-        if obj.pk:
-            report = obj.financial_reports.first()
-            if report:
-                change_url = reverse('admin:core_financialreport_change', args=[report.pk])
-                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
-                list_url = reverse('admin:core_financialreport_changelist') + f'?q={obj.cedula}'
-                
-                return format_html(
-                    '<div class="nowrap">'
-                    '<a href="{}" class="changelink">View/Edit Financials</a> &nbsp;'
-                    '<a href="{}" class="addlink">Add New Report</a> &nbsp;'
-                    '<a href="{}" class="viewlink">All Reports</a>'
-                    '</div>',
-                    change_url,
-                    add_url,
-                    list_url
-                )
-            else:
-                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
-                return format_html(
-                    '<a href="{}" class="addlink">Create Financial Report</a>',
-                    add_url
-                )
-        return "-"
-    financial_reports_link.short_description = 'Financial Reports'
-    financial_reports_link.allow_tags = True
     
     def get_fieldsets(self, request, obj=None):
         if obj is None:  # Add view
@@ -310,13 +235,6 @@ class ConflictAdmin(admin.ModelAdmin):
     get_q10_display.short_description = 'Familiar de funcionario'
     def get_q11_display(self, obj): return "YES" if obj.q11 else "NO"
     get_q11_display.short_description = 'Relacion con sector publico'
-
-@admin.register(FinancialReport)
-class FinancialReportAdmin(admin.ModelAdmin):
-    list_display = ('person', 'ano_declaracion', 'activos', 'pasivos', 'patrimonio')
-    search_fields = ('person__nombre_completo', 'person__cedula')
-    list_filter = ('ano_declaracion',)
-    raw_id_fields = ('person',)
 "@
 
 # Create urls.py for core app
@@ -330,7 +248,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_period, import_persons, import_financials)
+                   import_conflicts, conflict_list, import_persons, import_tcs)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -367,18 +285,21 @@ urlpatterns = [
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', register_superuser, name='register'),
     path('import/', ImportView.as_view(), name='import'),
-    path('import-period/', views.import_period, name='import_period'),
     path('import-persons/', views.import_persons, name='import_persons'),
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
-    path('import-financials/', views.import_financials, name='import_financials'),
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
+    path('import-tcs/', views.import_tcs, name='import_tcs'),
 ]
 "@
 
 # Update core/views.py with financial import
 Set-Content -Path "core/views.py" -Value @"
-from django.http import HttpResponse, HttpResponseRedirect
+import pandas as pd
+from datetime import datetime
+import os
+from django.conf import settings
+from django.http import HttpResponseRedirect
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -387,12 +308,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person, Conflict, FinancialReport
-from django.db.models import Count
+from core.models import Person, Conflict
 from django.db.models import Q
-import pandas as pd
 import subprocess
-import os
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -436,24 +354,6 @@ class ImportView(LoginRequiredMixin, TemplateView):
 @login_required
 def main(request):
     return render(request, 'home.html')
-
-def import_period(request):
-    """View for importing period data from Excel files"""
-    if request.method == 'POST' and request.FILES.get('period_excel_file'):
-        excel_file = request.FILES['period_excel_file']
-        try:
-            temp_path = "core/src/periodoBR.xlsx"
-            with open(temp_path, 'wb+') as destination:
-                for chunk in excel_file.chunks():
-                    destination.write(chunk)
-            
-            messages.success(request, 'Archivo de periodos importado exitosamente!')
-        except Exception as e:
-            messages.error(request, f'Error procesando archivo de periodos: {str(e)}')
-        
-        return HttpResponseRedirect('/import/')
-    
-    return HttpResponseRedirect('/import/')
 
 @login_required
 def import_persons(request):
@@ -577,140 +477,6 @@ def import_conflicts(request):
     return HttpResponseRedirect('/import/')
 
 @login_required
-def import_financials(request):
-    """View for importing financial data from Excel files"""
-    if request.method == 'POST' and request.FILES.get('protected_excel_file'):
-        excel_file = request.FILES['protected_excel_file']
-        excel_password = request.POST.get('excel_password', '')
-        
-        try:
-            # Save the uploaded file
-            dest_path = "core/src/data.xlsx"
-            
-            # Read the password-protected file and save it without password
-            try:
-                import msoffcrypto
-                import io
-                
-                # Read the uploaded file into memory
-                file_content = excel_file.read()
-                
-                # Decrypt the file
-                decrypted = io.BytesIO()
-                office_file = msoffcrypto.OfficeFile(io.BytesIO(file_content))
-                office_file.load_key(password=excel_password)
-                office_file.decrypt(decrypted)
-                
-                # Save the decrypted file
-                with open(dest_path, 'wb') as destination:
-                    destination.write(decrypted.getvalue())
-                
-            except Exception as e:
-                messages.error(request, f'Error decrypting file: {str(e)}')
-                return HttpResponseRedirect('/import/')
-            
-            # Process the Excel file using the analysis scripts
-            try:
-                # Run cats.py to analyze the raw data
-                subprocess.run(['python', 'core/cats.py'], check=True)
-                
-                # Run nets.py to generate summaries
-                subprocess.run(['python', 'core/nets.py'], check=True)
-                
-                # Run trends.py to calculate trends
-                subprocess.run(['python', 'core/trends.py'], check=True)
-                
-                # Run idTrends.py to merge with personas and create idTrends.xlsx
-                subprocess.run(['python', 'core/idTrends.py'], check=True)
-                
-                # Now import the processed data from idTrends.xlsx into FinancialReport model
-                import pandas as pd
-                from core.models import Person, FinancialReport
-                
-                processed_file = "core/src/idTrends.xlsx"
-                df = pd.read_excel(processed_file)
-                
-                # Check if 'Cedula' column exists
-                if 'Cedula' not in df.columns:
-                    messages.error(request, "El archivo procesado no contiene la columna 'Cedula'")
-                    return HttpResponseRedirect('/import/')
-                
-                for _, row in df.iterrows():
-                    try:
-                        # Get the cedula value
-                        cedula_value = str(row['Cedula']) if pd.notna(row['Cedula']) else None
-                        if not cedula_value:
-                            messages.warning(request, "Fila sin cédula encontrada, saltando...")
-                            continue
-                            
-                        # Find the person by cedula
-                        person = Person.objects.filter(cedula=cedula_value).first()
-                        if not person:
-                            messages.warning(request, f"Persona con cédula {cedula_value} no encontrada")
-                            continue
-                            
-                        # Create or update FinancialReport
-                        FinancialReport.objects.update_or_create(
-                            person=person,
-                            cedula=cedula_value,
-                            fkIdPeriodo=row.get('fkIdPeriodo', 0),
-                            ano_declaracion=row.get('Año Declaración', 0),
-                            ano_creacion=row.get('Año Creación', 0),
-                            defaults={
-                                'activos': row.get('Activos', 0),
-                                'cant_bienes': row.get('Cant_Bienes', 0),
-                                'cant_bancos': row.get('Cant_Bancos', 0),
-                                'cant_cuentas': row.get('Cant_Cuentas', 0),
-                                'cant_inversiones': row.get('Cant_Inversiones', 0),
-                                'pasivos': row.get('Pasivos', 0),
-                                'cant_deudas': row.get('Cant_Deudas', 0),
-                                'patrimonio': row.get('Patrimonio', 0),
-                                'apalancamiento': row.get('Apalancamiento', 0),
-                                'endeudamiento': row.get('Endeudamiento', 0),
-                                'capital': row.get('Capital', 0),
-                                'aum_pat_subito': row.get('Aum. Pat. Subito', ''),
-                                'activos_var_abs': row.get('Activos Var. Abs.', 0),
-                                'activos_var_rel': row.get('Activos Var. Rel.', ''),
-                                'pasivos_var_abs': row.get('Pasivos Var. Abs.', 0),
-                                'pasivos_var_rel': row.get('Pasivos Var. Rel.', ''),
-                                'patrimonio_var_abs': row.get('Patrimonio Var. Abs.', 0),
-                                'patrimonio_var_rel': row.get('Patrimonio Var. Rel.', ''),
-                                'apalancamiento_var_abs': row.get('Apalancamiento Var. Abs.', 0),
-                                'apalancamiento_var_rel': row.get('Apalancamiento Var. Rel.', ''),
-                                'endeudamiento_var_abs': row.get('Endeudamiento Var. Abs.', 0),
-                                'endeudamiento_var_rel': row.get('Endeudamiento Var. Rel.', ''),
-                                'banco_saldo': row.get('BancoSaldo', 0),
-                                'bienes': row.get('Bienes', 0),
-                                'inversiones': row.get('Inversiones', 0),
-                                'banco_saldo_var_abs': row.get('BancoSaldo Var. Abs.', 0),
-                                'banco_saldo_var_rel': row.get('BancoSaldo Var. Rel.', ''),
-                                'bienes_var_abs': row.get('Bienes Var. Abs.', 0),
-                                'bienes_var_rel': row.get('Bienes Var. Rel.', ''),
-                                'inversiones_var_abs': row.get('Inversiones Var. Abs.', 0),
-                                'inversiones_var_rel': row.get('Inversiones Var. Rel.', ''),
-                                'ingresos': row.get('Ingresos', 0),
-                                'cant_ingresos': row.get('Cant_Ingresos', 0),
-                                'ingresos_var_abs': row.get('Ingresos Var. Abs.', 0),
-                                'ingresos_var_rel': row.get('Ingresos Var. Rel.', ''),
-                            }
-                        )
-                    except Exception as e:
-                        messages.error(request, f"Error procesando fila {cedula_value}: {str(e)}")
-                        continue
-                
-                messages.success(request, 'Datos financieros importados y procesados exitosamente!')
-            except subprocess.CalledProcessError as e:
-                messages.error(request, f'Error ejecutando scripts de análisis: {str(e)}')
-            except Exception as e:
-                messages.error(request, f'Error procesando datos financieros: {str(e)}')
-        except Exception as e:
-            messages.error(request, f'Error guardando archivo financiero: {str(e)}')
-        
-        return HttpResponseRedirect('/import/')
-    
-    return HttpResponseRedirect('/import/')
-
-@login_required
 def person_list(request):
     search_query = request.GET.get('q', '')
     status_filter = request.GET.get('status', '')
@@ -807,54 +573,49 @@ def conflict_list(request):
     return render(request, 'conflicts.html', context)
 
 @login_required
-def financial_list(request):
-    search_query = request.GET.get('q', '')
-    column_filter = request.GET.get('column', '')
-    operator_filter = request.GET.get('operator', '')
-    value_filter = request.GET.get('value', '')
+def import_tcs(request):
+    """View for importing credit card data from PDF files"""
+    if request.method == 'POST' and request.FILES.getlist('visa_pdf_files'):
+        pdf_files = request.FILES.getlist('visa_pdf_files')
+        password = request.POST.get('visa_pdf_password', '')
+        
+        try:
+            # Ensure visa directory exists
+            visa_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'visa')
+            os.makedirs(visa_dir, exist_ok=True)
+            
+            # Save password if provided
+            if password:
+                with open(os.path.join(visa_dir, 'password.txt'), 'w') as f:
+                    f.write(password)
+            
+            # Save all PDF files
+            for pdf_file in pdf_files:
+                dest_path = os.path.join(visa_dir, pdf_file.name)
+                with open(dest_path, 'wb+') as destination:
+                    for chunk in pdf_file.chunks():
+                        destination.write(chunk)
+            
+            # Process the PDFs
+            subprocess.run(['python', 'core/tcs.py'], check=True, cwd=settings.BASE_DIR)
+            
+            # Count processed transactions
+            output_file = os.path.join(visa_dir, f"VISA_{datetime.now().strftime('%Y%m%d')}.xlsx")
+            if os.path.exists(output_file):
+                df = pd.read_excel(output_file)
+                record_count = len(df)
+            else:
+                record_count = 0
+            
+            messages.success(request, f'Archivos de tarjetas procesados exitosamente! {record_count} transacciones encontradas.')
+        except subprocess.CalledProcessError as e:
+            messages.error(request, f'Error procesando archivos PDF: {str(e)}')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivos de tarjetas: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
     
-    order_by = request.GET.get('order_by', 'person__nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-    
-    persons = Person.objects.prefetch_related('financial_reports').all()
-    
-    if search_query:
-        persons = persons.filter(
-            Q(nombre_completo__icontains=search_query) |
-            Q(cedula__icontains=search_query) |
-            Q(correo__icontains=search_query))
-    
-    if column_filter and operator_filter and value_filter:
-        if operator_filter == '>':
-            persons = persons.filter(financial_reports__**{f"{column_filter}__gt": value_filter})
-        elif operator_filter == '<':
-            persons = persons.filter(financial_reports__**{f"{column_filter}__lt": value_filter})
-        elif operator_filter == '=':
-            persons = persons.filter(financial_reports__**{f"{column_filter}": value_filter})
-        elif operator_filter == '>=':
-            persons = persons.filter(financial_reports__**{f"{column_filter}__gte": value_filter})
-        elif operator_filter == '<=':
-            persons = persons.filter(financial_reports__**{f"{column_filter}__lte": value_filter})
-        elif operator_filter == 'contains':
-            persons = persons.filter(financial_reports__**{f"{column_filter}__icontains": value_filter})
-    
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    persons = persons.order_by(order_by)
-    
-    paginator = Paginator(persons, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'persons': page_obj,
-        'page_obj': page_obj,
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-    }
-    
-    return render(request, 'finances.html', context)
+    return HttpResponseRedirect('/import/')
 "@
 
 # Create core/conflicts.py
@@ -1016,6 +777,17 @@ CURRENCY_RATES = {
         'VEB': 0, 'VES': 0.000000001, 'BRL': 0.190, 'NIO': 0.0260 }
 }
 
+# Define the periodo dataframe internally
+PERIODO_DF = pd.DataFrame({
+    'Id': [2, 6, 7, 8],
+    'Activo': [True, True, True, True],
+    'Año': ['Friday, January 01, 2021', 'Saturday, January 01, 2022', 
+            'Sunday, January 01, 2023', 'Monday, January 01, 2024'],
+    'FechaFinDeclaracion': ['4/30/2022', '3/31/2023', '5/12/2024', '1/1/2025'],
+    'FechaInicioDeclaracion': ['6/1/2021', '10/19/2022', '11/1/2023', '10/2/2024'],
+    'Año declaracion': ['2,021', '2,022', '2,023', '2,024']
+})
+
 def get_trm(year):
     """Gets TRM for a given year from the dictionary"""
     return TRM_DICT.get(year)
@@ -1060,7 +832,7 @@ def get_currency_code(moneda_text):
     }
     return currency_mapping.get(moneda_text)
 
-def get_valid_year(row, periodo_df):
+def get_valid_year(row, periodo_df=None):
     """Extracts a valid year, handling missing values and format variations."""
     try:
         fkIdPeriodo = pd.to_numeric(row['fkIdPeriodo'], errors='coerce')
@@ -1068,23 +840,26 @@ def get_valid_year(row, periodo_df):
             print(f"Warning: Missing fkIdPeriodo at index {row.name}. Skipping row.")
             return None
 
+        # Use the internal PERIODO_DF if no periodo_df is provided
+        periodo_df = periodo_df if periodo_df is not None else PERIODO_DF
+        
         matching_row = periodo_df[periodo_df['Id'] == fkIdPeriodo]
         if matching_row.empty:
-            print(f"Warning: No matching Id found in periodoBR.xlsx for fkIdPeriodo {fkIdPeriodo} at index {row.name}. Skipping row.")
+            print(f"Warning: No matching Id found in periodo data for fkIdPeriodo {fkIdPeriodo} at index {row.name}. Skipping row.")
             return None
 
-        year_str = matching_row['Año'].iloc[0]
+        year_str = matching_row['Año declaracion'].iloc[0]
 
         try:
-            year = int(year_str)  # Try direct conversion to integer
+            # Clean the year string by removing commas and converting to integer
+            year = int(year_str.replace(',', ''))
             return year
         except (ValueError, TypeError):
             try:
-                year = pd.to_datetime(year_str, errors='coerce').year  # Try datetime conversion, handle errors gracefully
-                if pd.isna(year):  # check for NaT which occurs when conversion fails.
-                    raise ValueError  # If conversion failed re-raise a ValueError.
+                year = pd.to_datetime(year_str, errors='coerce').year
+                if pd.isna(year):
+                    raise ValueError
                 return year
-
             except ValueError:
                 print(f"Warning: Invalid year format '{year_str}' for fkIdPeriodo {fkIdPeriodo} at index {row.name}. Skipping row.")
                 return None
@@ -1093,11 +868,10 @@ def get_valid_year(row, periodo_df):
         print(f"Error in get_valid_year for fkIdPeriodo {fkIdPeriodo} at index {row.name}: {e}")
         return None
 
-def analyze_banks(file_path, output_file_path, periodo_file_path):
+def analyze_banks(file_path, output_file_path, periodo_file_path=None):
     """Analyze bank account data"""
     df = pd.read_excel(file_path)
-    periodo_df = pd.read_excel(periodo_file_path)
-
+    
     maintain_columns = [
         'fkIdPeriodo', 'fkIdEstado',
         'Año Creación', 'Año Envío', 'Usuario',
@@ -1117,7 +891,7 @@ def analyze_banks(file_path, output_file_path, periodo_file_path):
     
     for index, row in banks_df.iterrows():
         try:
-            year = get_valid_year(row, periodo_df)
+            year = get_valid_year(row)
             if year is None:
                 print(f"Warning: Could not determine valid year for index {index} and fkIdPeriodo {row['fkIdPeriodo']}. Skipping row.")
                 banks_df.loc[index, 'Año Declaración'] = "Año no encontrado"
@@ -1155,11 +929,10 @@ def analyze_banks(file_path, output_file_path, periodo_file_path):
     
     banks_df.to_excel(output_file_path, index=False)
 
-def analyze_debts(file_path, output_file_path, periodo_file_path):
+def analyze_debts(file_path, output_file_path, periodo_file_path=None):
     """Analyze debts data"""
     df = pd.read_excel(file_path)
-    periodo_df = pd.read_excel(periodo_file_path)
-
+    
     maintain_columns = [
         'fkIdPeriodo', 'fkIdEstado',
         'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
@@ -1179,7 +952,7 @@ def analyze_debts(file_path, output_file_path, periodo_file_path):
     
     for index, row in debts_df.iterrows():
         try:
-            year = get_valid_year(row, periodo_df)
+            year = get_valid_year(row)
             if year is None:
                 print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
                 continue
@@ -1216,11 +989,10 @@ def analyze_debts(file_path, output_file_path, periodo_file_path):
 
     debts_df.to_excel(output_file_path, index=False)
 
-def analyze_goods(file_path, output_file_path, periodo_file_path):
+def analyze_goods(file_path, output_file_path, periodo_file_path=None):
     """Analyze goods/patrimony data"""
     df = pd.read_excel(file_path)
-    periodo_df = pd.read_excel(periodo_file_path)
-
+    
     maintain_columns = [
         'fkIdPeriodo', 'fkIdEstado',
         'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
@@ -1241,7 +1013,7 @@ def analyze_goods(file_path, output_file_path, periodo_file_path):
     
     for index, row in goods_df.iterrows():
         try:
-            year = get_valid_year(row, periodo_df)
+            year = get_valid_year(row)
             if year is None:
                 print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
                 continue
@@ -1292,11 +1064,10 @@ def analyze_goods(file_path, output_file_path, periodo_file_path):
     
     goods_df.to_excel(output_file_path, index=False)
 
-def analyze_incomes(file_path, output_file_path, periodo_file_path):
+def analyze_incomes(file_path, output_file_path, periodo_file_path=None):
     """Analyze income data"""
     df = pd.read_excel(file_path)
-    periodo_df = pd.read_excel(periodo_file_path)
-
+    
     maintain_columns = [
         'fkIdPeriodo', 'fkIdEstado',
         'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
@@ -1316,7 +1087,7 @@ def analyze_incomes(file_path, output_file_path, periodo_file_path):
     
     for index, row in incomes_df.iterrows():
         try:
-            year = get_valid_year(row, periodo_df)
+            year = get_valid_year(row)
             if year is None:
                 print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
                 continue
@@ -1352,11 +1123,10 @@ def analyze_incomes(file_path, output_file_path, periodo_file_path):
     
     incomes_df.to_excel(output_file_path, index=False)
 
-def analyze_investments(file_path, output_file_path, periodo_file_path):
+def analyze_investments(file_path, output_file_path, periodo_file_path=None):
     """Analyze investment data"""
     df = pd.read_excel(file_path)
-    periodo_df = pd.read_excel(periodo_file_path)
-
+    
     maintain_columns = [
         'fkIdPeriodo', 'fkIdEstado',
         'Año Creación', 'Año Envío', 'Usuario', 'Nombre',
@@ -1376,7 +1146,7 @@ def analyze_investments(file_path, output_file_path, periodo_file_path):
     
     for index, row in invest_df.iterrows():
         try:
-            year = get_valid_year(row, periodo_df)
+            year = get_valid_year(row)
             if year is None:
                 print(f"Warning: Could not determine valid year for index {index}. Skipping row.")
                 continue
@@ -1415,13 +1185,12 @@ def analyze_investments(file_path, output_file_path, periodo_file_path):
 def run_all_analyses():
     """Run all analysis functions with their respective file paths"""
     file_path = 'core/src/data.xlsx'
-    periodo_file_path = 'core/src/periodoBR.xlsx'
     
-    analyze_banks(file_path, 'core/src/banks.xlsx', periodo_file_path)
-    analyze_debts(file_path, 'core/src/debts.xlsx', periodo_file_path)
-    analyze_goods(file_path, 'core/src/goods.xlsx', periodo_file_path)
-    analyze_incomes(file_path, 'core/src/incomes.xlsx', periodo_file_path)
-    analyze_investments(file_path, 'core/src/investments.xlsx', periodo_file_path)
+    analyze_banks(file_path, 'core/src/banks.xlsx')
+    analyze_debts(file_path, 'core/src/debts.xlsx')
+    analyze_goods(file_path, 'core/src/goods.xlsx')
+    analyze_incomes(file_path, 'core/src/incomes.xlsx')
+    analyze_investments(file_path, 'core/src/investments.xlsx')
 
 if __name__ == "__main__":
     run_all_analyses()
@@ -1922,107 +1691,204 @@ if __name__ == "__main__":
     main()
 "@
 
-# Create core/idTrends.py
-Set-Content -Path "core/idTrends.py" -Value @"
-# idTrends.py
+# Create tcs.py
+Set-Content -Path "core/tcs.py" -Value @"
+import pdfplumber
 import pandas as pd
+import re
 import os
 from datetime import datetime
+import shutil
+import traceback
 
-def merge_trends_data(personas_file, trends_file, output_file):
-    """
-    Merge personas data with trends data to add Cedula information.
-    Returns True if successful, False otherwise.
-    """
+# Configuration
+PDF_FOLDER = os.path.join("core", "src", "visa")
+OUTPUT_FOLDER = os.path.join("core", "src")
+COLUMN_NAMES = [
+    "Archivo", "Tarjetahabiente", "Número de Tarjeta", "Número de Autorización",
+    "Fecha de Transacción", "Descripción", "Valor Original",
+    "Tasa Pactada", "Tasa EA Facturada", "Cargos y Abonos",
+    "Saldo a Diferir", "Cuotas", "Página"
+]
+
+# Patterns
+TRANSACTION_PATTERN = re.compile(
+    r"(\d{6})\s+(\d{2}/\d{2}/\d{4})\s+(.+?)\s+([\d,.]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,.]+)\s+([\d,.]+)\s+(\d+/\d+|0\.00)"
+)
+CARD_PATTERN = re.compile(r"TARJETA:\s+\*{12}(\d{4})")
+
+def get_password():
+    """Get password from password.txt if it exists"""
+    password_file = os.path.join(PDF_FOLDER, "password.txt")
+    if os.path.exists(password_file):
+        with open(password_file, 'r') as f:
+            return f.read().strip()
+    return ""
+
+def clean_value(value):
+    """Clean and format numeric values"""
+    return value.replace(".", "#").replace(",", ".").replace("#", ",")
+
+def process_pdf(pdf_path, password):
+    """Process a single PDF file and extract data"""
+    data_rows = []
     try:
-        # Load the Excel files
-        personas = pd.read_excel(personas_file)
-        trends = pd.read_excel(trends_file)
+        with pdfplumber.open(pdf_path, password=password) as pdf:
+            cardholder = ""
+            card_number = ""
+            has_transactions = False
+            last_page = 1
 
-        # Standardize column names for merging
-        personas = personas.rename(columns={
-            'NOMBRE COMPLETO': 'Nombre',
-            'CARGO': 'Cargo',
-            'Compania': 'Compañía'
-        })
-        
-        # Ensure consistent naming in trends
-        trends = trends.rename(columns={
-            'Usuario': 'Cedula'  # Temporarily rename Usuario to Cedula
-        })
+            for page_num, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text()
+                if not text:
+                    continue
 
-        # Perform a left join to keep all trends data and add Cedula from personas
-        merged = pd.merge(
-            trends,
-            personas[['Nombre', 'Cargo', 'Compañía', 'Cedula']],
-            on=['Nombre', 'Cargo', 'Compañía'],
-            how='left',
-            suffixes=('_trends', '_personas')
-        )
+                last_page = page_num
+                lines = text.split("\n")
 
-        # Where we don't have a match from personas, keep the original Cedula (which was Usuario)
-        merged['Cedula'] = merged['Cedula_personas'].combine_first(merged['Cedula_trends'])
-        
-        # Drop the temporary columns
-        merged = merged.drop(columns=['Cedula_trends', 'Cedula_personas'])
+                for idx, line in enumerate(lines):
+                    line = line.strip()
 
-        # Define the exact columns we want in the output
-        output_columns = [
-            'Cedula', 'Nombre', 'Compañía', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 
-            'Año Creación', 'Activos', 'Cant_Bienes', 'Cant_Bancos', 'Cant_Cuentas', 
-            'Cant_Inversiones', 'Pasivos', 'Cant_Deudas', 'Patrimonio', 'Apalancamiento', 
-            'Endeudamiento', 'Capital', 'Aum. Pat. Subito', 'Activos Var. Abs.', 
-            'Activos Var. Rel.', 'Pasivos Var. Abs.', 'Pasivos Var. Rel.', 
-            'Patrimonio Var. Abs.', 'Patrimonio Var. Rel.', 'Apalancamiento Var. Abs.', 
-            'Apalancamiento Var. Rel.', 'Endeudamiento Var. Abs.', 'Endeudamiento Var. Rel.', 
-            'BancoSaldo', 'Bienes', 'Inversiones', 'BancoSaldo Var. Abs.', 
-            'BancoSaldo Var. Rel.', 'Bienes Var. Abs.', 'Bienes Var. Rel.', 
-            'Inversiones Var. Abs.', 'Inversiones Var. Rel.', 'Ingresos', 
-            'Cant_Ingresos', 'Ingresos Var. Abs.', 'Ingresos Var. Rel.'
-        ]
-        
-        # Filter to only include columns that exist in both our list and the merged data
-        final_columns = [col for col in output_columns if col in merged.columns]
-        
-        # Create the final dataframe with exactly the columns we want, in order
-        final_df = merged[final_columns]
+                    # Check for card number change
+                    card_match = CARD_PATTERN.search(line)
+                    if card_match:
+                        if cardholder and card_number and not has_transactions:
+                            row = [
+                                os.path.basename(pdf_path), cardholder, card_number,
+                                "Sin transacciones", "", "", "", "", "", "", "", "", last_page
+                            ]
+                            data_rows.append(row)
 
-        # Fill null values with empty string
-        final_df = final_df.fillna('')
+                        card_number = card_match.group(1)
+                        has_transactions = False
 
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                        # Get cardholder name from previous line
+                        if idx > 0:
+                            possible_name = lines[idx - 1].strip()
+                            possible_name = (
+                                possible_name
+                                .replace("SEÑOR (A):", "")
+                                .replace("Señor (A):", "")
+                                .replace("SEÑOR:", "")
+                                .replace("Señor:", "")
+                                .strip()
+                                .title()
+                            )
+                            if len(possible_name.split()) >= 2:
+                                cardholder = possible_name
+                        continue
 
-        # Save to new Excel file
-        final_df.to_excel(output_file, index=False)
-        
-        return True
+                    # Check for transactions
+                    match = TRANSACTION_PATTERN.search(' '.join(line.split()))
+                    if match and cardholder and card_number:
+                        row_data = list(match.groups())
+                        row_data.insert(0, card_number)
+                        row_data.insert(0, cardholder)
+                        row_data.insert(0, os.path.basename(pdf_path))
+
+                        # Clean numeric values
+                        row_data[6] = clean_value(row_data[6])  # Valor Original
+                        row_data[9] = clean_value(row_data[9])  # Cargos y Abonos
+                        row_data[10] = clean_value(row_data[10])  # Saldo a Diferir
+
+                        row_data.append(page_num)
+                        data_rows.append(row_data)
+                        has_transactions = True
+
+            # Add entry if no transactions were found
+            if cardholder and card_number and not has_transactions:
+                row = [
+                    os.path.basename(pdf_path), cardholder, card_number,
+                    "Sin transacciones", "", "", "", "", "", "", "", "", last_page
+                ]
+                data_rows.append(row)
 
     except Exception as e:
-        print(f"Error merging trends data: {str(e)}")
-        return False
+        print(f"⚠ Error processing '{os.path.basename(pdf_path)}': {str(e)}")
+        traceback.print_exc()
+
+    return data_rows
+
+def cleanup_files():
+    """Clean up temporary files"""
+    try:
+        # Delete all PDFs in the folder
+        for filename in os.listdir(PDF_FOLDER):
+            file_path = os.path.join(PDF_FOLDER, filename)
+            try:
+                if os.path.isfile(file_path) and filename.lower().endswith('.pdf'):
+                    os.unlink(file_path)
+                elif os.path.isfile(file_path) and filename.lower() == 'password.txt':
+                    os.unlink(file_path)
+            except Exception as e:
+                print(f"⚠ Could not delete {file_path}: {e}")
+                
+        print("✓ Temporary files cleaned up")
+    except Exception as e:
+        print(f"⚠ Warning: Could not clean all files: {e}")
 
 def main():
-    """Main function to process the data"""
-    try:
-        # Define file paths
-        personas_file = 'core/src/Personas.xlsx'
-        trends_file = 'core/src/trends.xlsx'
-        output_file = 'core/src/idTrends.xlsx'
+    """Main processing function"""
+    # Ensure directories exist
+    os.makedirs(PDF_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    
+    # Get password
+    password = get_password()
+    
+    # Get PDF files
+    pdf_files = [
+        f for f in os.listdir(PDF_FOLDER) 
+        if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(PDF_FOLDER, f))
+    ]
+    
+    if not pdf_files:
+        print("⚠ No PDF files found in the visa folder")
+        return
+    
+    # Process all PDFs
+    all_data = []
+    for pdf_file in pdf_files:
+        pdf_path = os.path.join(PDF_FOLDER, pdf_file)
+        print(f"📄 Processing: {pdf_file}")
+        all_data.extend(process_pdf(pdf_path, password))
+    
+    # Export to Excel
+    if all_data:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(OUTPUT_FOLDER, f"VISA_{timestamp}.xlsx")
         
-        # Run the merge
-        success = merge_trends_data(personas_file, trends_file, output_file)
+        df = pd.DataFrame(all_data, columns=COLUMN_NAMES)
         
-        if success:
-            print("Successfully created idTrends.xlsx")
-            return True
-        else:
-            print("Failed to create idTrends.xlsx")
-            return False
-            
-    except Exception as e:
-        print(f"Error in idTrends main: {str(e)}")
-        return False
+        # Convert date column to datetime
+        if 'Fecha de Transacción' in df.columns:
+            df['Fecha de Transacción'] = pd.to_datetime(
+                df['Fecha de Transacción'], 
+                dayfirst=True,
+                errors='coerce'
+            )
+        
+        # Save to Excel
+        writer = pd.ExcelWriter(output_file, engine='openpyxl')
+        df.to_excel(writer, index=False)
+        
+        # Auto-adjust column widths
+        worksheet = writer.sheets['Sheet1']
+        for column in df.columns:
+            column_length = max(df[column].astype(str).map(len).max(), len(column))
+            col_idx = df.columns.get_loc(column)
+            worksheet.column_dimensions[chr(65 + col_idx)].width = column_length + 2
+        
+        writer.close()
+        
+        print(f"\n✓ Excel file generated: {output_file}")
+        print(f"Processed {len(df)} transactions")
+        
+        # Clean up files
+        cleanup_files()
+    else:
+        print("\n⚠ No data extracted from PDFs")
 
 if __name__ == "__main__":
     main()
@@ -2711,41 +2577,16 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Add loading JS -->
 <script src="{% static 'js/loading.js' %}"></script>
 
-<div class="row">
-    <!-- First row with 3 cards -->
-    <div class="col-md-4 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_period' %}">
-                    {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="period_excel_file" name="period_excel_file" required>
-                        <div class="form-text">El archivo Excel de Periodos debe incluir las columnas: Id, Activo, FechaFinDeclaracion, FechaInicioDeclaracion, Ano declaracion</div>
-                    </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Periodos</button>
-                </form>
-            </div>
-            {% for message in messages %}
-                {% if 'import_period' in message.tags %}
-                <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="col-md-4 mb-4">
+<div class="row mb-4">
+    <!-- Personas Card -->
+    <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_persons' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="excel_file" name="excel_file" required>
-                        <div class="form-text">El archivo Excel de Personas debe incluir las columnas: Id, NOMBRE COMPLETO, CARGO, Cedula, Correo, Compania, Estado</div>
+                        <div class="form-text">El archivo debe incluir las columnas: Id, NOMBRE COMPLETO, CARGO, Cedula, Correo, Compania, Estado</div>
                     </div>
                     <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Personas</button>
                 </form>
@@ -2760,18 +2601,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 {% endif %}
             {% endfor %}
-            <!-- count registers -->
             <div class="card-footer">
                 <div class="d-flex align-items-center">
                     <span class="badge bg-success">
-                        {{ person_count }} Personas
+                        {{ person_count }} Personas Registradas
                     </span>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="col-md-4 mb-4">
+    <!-- Conflictos Card -->
+    <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_conflicts' %}">
@@ -2793,61 +2634,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 {% endif %}
             {% endfor %}
-            <!-- count registers -->
             <div class="card-footer">
                 <div class="d-flex align-items-center">
                     <span class="badge bg-success">
-                        {{ conflict_count }} declaraciones
+                        {{ conflict_count }} Declaraciones Registradas
                     </span>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
-<div class="row">
-    <!-- Left column with 3 import forms in a single card -->
-    <div class="col-md-4">
+    <!-- Bienes y Rentas Card -->
+    <div class="col-md-3 mb-4">
         <div class="card h-100">
-            <div class="card-body d-flex flex-column">
-                <!-- Bienes y Rentas -->
-
-                <div class="mb-4 flex-grow-1">
-                    <form method="post" enctype="multipart/form-data" action="{% url 'import_financials' %}">
-                        {% csrf_token %}
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
+                        <div class="form-text">El archivo debe ser dataHistoricaPBI.xlsx</div>
                         <div class="mb-3">
-                            <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
-                            <div class="form-text">El archivo Excel de Bienes y Rentas debe ser dataHistoricaPBI.xlsx</div>
-                            <div class="mb-3">
-                                <input type="password" class="form-control" id="excel_password" name="excel_password">
-                                <div class="form-text">Ingrese la clave si el archivo esta protegido</div>
-                            </div>
+                            <input type="password" class="form-control" id="excel_password" name="excel_password">
+                            <div class="form-text">Ingrese la clave si el archivo esta protegido</div>
                         </div>
-                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Bienes y Rentas</button>
-                    </form>
-                </div>
-
-                <!-- Visa -->
-                <div class="flex-grow-1">
-                    <form method="post" enctype="multipart/form-data">
-                        {% csrf_token %}
-                        <div class="mb-3">
-                            <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple webkitdirectory directory required>
-                            <div class="form-text">Seleccione la carpeta con los PDFs de VISA</div>
-                        </div>
-                        <!-- Add password input field -->
-                        <div class="mb-3">
-                            <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password" placeholder="Clave">
-                            <div class="form-text">Ingrese la contrasena si los PDFs estan protegidos</div>
-                        </div>
-                        <button type="submit" class="btn btn-custom-primary btn-lg text-start">Procesar TC</button>
-                    </form>
-                </div>
+                    </div>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Bienes y Rentas</button>
+                </form>
             </div>
-            
-            <!-- Messages for all three forms -->
             {% for message in messages %}
-                {% if 'import_protected_excel' in message.tags or 'import_visa_pdfs' in message.tags %}
+                {% if 'import_protected_excel' in message.tags %}
                 <div class="card-footer">
                     <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
                         {{ message }}
@@ -2859,8 +2674,52 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 
-    <!-- Right column with analysis results -->
-    <div class="col-md-8">
+        <!-- TC Card -->
+        <div class="col-md-3 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <input type="file" 
+                                class="form-control form-control-lg" 
+                                id="visa_pdf_files" 
+                                name="visa_pdf_files" 
+                                multiple 
+                                accept=".pdf"
+                                required>
+                            <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
+                        </div>
+                        <div class="mb-3">
+                            <input type="password" 
+                                class="form-control form-control-lg" 
+                                id="visa_pdf_password" 
+                                name="visa_pdf_password" 
+                                placeholder="Clave (opcional)">
+                            <div class="form-text">Ingrese la clave si los PDFs están protegidos</div>
+                        </div>
+                        <button type="submit" class="btn btn-custom-primary btn-lg w-100">
+                            <i class="fas fa-credit-card"></i> Importar TCs
+                        </button>
+                    </form>
+                </div>
+                {% for message in messages %}
+                    {% if 'import_tcs' in message.tags %}
+                    <div class="card-footer">
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+</div>
+
+<!-- Analysis Results Row -->
+<div class="row">
+    <div class="col-12">
         <div class="card h-100">
             <div class="card-header bg-light">
                 <h5 class="mb-0">Resultados del Analisis</h5>
@@ -3433,6 +3292,225 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/conflicts.html" -Encoding utf8
 
+@"
+{% extends "master.html" %}
+
+{% block title %}Tarjetas de Credito{% endblock %}
+{% block navbar_title %}Tarjetas de CrÃ©dito{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary">
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Importar">
+        <i class="fas fa-upload"></i>
+    </a>
+    <a href="?{% for key, value in request.GET.items %}{{ key }}={{ value }}&{% endfor %}export=excel" class="btn btn-custom-primary btn-my-green" title="Exportar">
+        <i class="fas fa-file-excel"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search Form -->
+<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+    <div class="card-body">
+        <form method="get" action="." class="row g-3 align-items-center">
+            <!-- General Search 
+            <div class="col-md-4">
+                <input type="text" 
+                       name="q" 
+                       class="form-control form-control-lg" 
+                       placeholder="Buscar tarjetahabiente..." 
+                       value="{{ request.GET.q }}">
+            </div> -->
+            
+            <!-- Card Type Filter -->
+            <div class="col-md-3">
+                <select name="card_type" class="form-select form-select-lg">
+                    <option value="">Tipo</option>
+                    <option value="MC" {% if request.GET.card_type == 'MC' %}selected{% endif %}>Mastercard</option>
+                    <option value="VI" {% if request.GET.card_type == 'VI' %}selected{% endif %}>Visa</option>
+                </select>
+            </div>
+            
+            <!-- Date Range -->
+            <div class="col-md-3">
+                <input type="date" 
+                       name="date_from" 
+                       class="form-control form-control-lg" 
+                       value="{{ request.GET.date_from }}">
+            </div>
+            <div class="col-md-3">
+                <input type="date" 
+                       name="date_to" 
+                       class="form-control form-control-lg" 
+                       value="{{ request.GET.date_to }}">
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Cards Table -->
+<div class="card border-0 shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive table-container">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-fixed-header">
+                    <tr>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tarjetahabiente
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=card_type&sort_direction={% if current_order == 'card_type' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tipo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=card_number&sort_direction={% if current_order == 'card_number' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Numero
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=transaction_date&sort_direction={% if current_order == 'transaction_date' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Fecha
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">DescripciÃ³n</th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=original_value&sort_direction={% if current_order == 'original_value' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Valor Original
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=exchange_rate&sort_direction={% if current_order == 'exchange_rate' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tasa
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=charges&sort_direction={% if current_order == 'charges' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargos
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=balance&sort_direction={% if current_order == 'balance' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Saldo
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">Cuotas</th>
+                        <th style="color: rgb(0, 0, 0);">Archivo</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                    </tr>
+                </thead>
+                <!-- In your table body -->
+                <tbody>
+                    {% for card in page_obj.object_list %}  <!-- Changed from cards to page_obj.object_list -->
+                    <tr {% if card.person.revisar %}class="table-warning"{% endif %}>
+                        <td>{{ card.person.nombre_completo }}</td>
+                        <td>{{ card.get_card_type_display }}</td>
+                        <td>**** **** **** {{ card.card_number|slice:"-4:" }}</td>
+                        <td>{{ card.transaction_date|date:"d/m/Y" }}</td>
+                        <td>{{ card.description|truncatechars:30 }}</td>
+                        <td>`$`{{ card.original_value|floatformat:2 }}</td>
+                        <td>{{ card.exchange_rate|default_if_none:"-"|floatformat:4 }}</td>
+                        <td>`$`{{ card.charges|default_if_none:"-"|floatformat:2 }}</td>
+                        <td>`$`{{ card.balance|default_if_none:"-"|floatformat:2 }}</td>
+                        <td>{{ card.installments|default:"-" }}</td>
+                        <td>{{ card.source_file|truncatechars:15 }}</td>
+                        <td class="table-fixed-column">
+                            <a href="/persons/details/{{ card.person.cedula }}/" 
+                            class="btn btn-custom-primary btn-sm"
+                            title="Ver detalles">
+                                <i class="bi bi-person-vcard-fill"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="12" class="text-center py-4">
+                                {% if request.GET.q or request.GET.card_type or request.GET.date_from or request.GET.date_to %}
+                                    No se encontraron transacciones con los filtros aplicados.
+                                {% else %}
+                                    No hay transacciones de tarjetas registradas.
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+        <div class="p-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                                <span aria-hidden="true">&laquo;&laquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                                <span aria-hidden="true">&raquo;&raquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/cards.html" -Encoding utf8
+
 # finances template
 @" 
 {% extends "master.html" %}
@@ -3442,23 +3520,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="/persons/" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="/cards/" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="/conflicts/" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="/alerts/" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="/persons/import/" class="btn btn-custom-primary" title="Importar">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-upload"></i>
-    </a>
-    <a href="?{% for key, value in request.GET.items %}{{ key }}={{ value }}&{% endfor %}export=excel" class="btn btn-custom-primary btn-my-green" title="Exportar">
-        <i class="fas fa-file-excel"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -3538,158 +3613,6 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="table-responsive table-container">
             <table class="table table-striped table-hover mb-0">
                 <thead class="table-fixed-header">
-                    <tr>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">-50%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">-50%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">-50%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th class="table-fixed-column"></th>
-                    </tr>
-                    <tr>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">-30%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">-30%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">-30%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th class="table-fixed-column"></th>
-                    </tr>
-                    <tr>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th >Medio</th>
-                        <th >"<="</th>
-                        <th style="background-color: #228B22; "></th>
-                        <th ></th>
-                        <th style="background-color: #228B22;  color: white;">1.5</th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">30%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">30%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">30%</th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">4</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: #228B22; color: white;">>4</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th class="table-fixed-column"></th>
-                    </tr>
-                    <tr>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th >Alto</th>
-                        <th >"<"</th>
-                        <th style="background-color: red;"></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">2</th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">50%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">50%</th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">50%</th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">6</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th style="background-color: red; color: white;">>6</th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th ></th>
-                        <th class="table-fixed-column"></th>
-                    </tr>
                     <tr>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
