@@ -248,7 +248,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_persons, import_tcs, import_finances)
+                   import_conflicts, conflict_list, import_persons, import_tcs, import_finances, person_details)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -291,6 +291,7 @@ urlpatterns = [
     path('conflicts/', views.conflict_list, name='conflict_list'),
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-protected-excel/', views.import_finances, name='import_finances'),
+    path('persons/<str:cedula>/', views.person_details, name='person_details'),
 ]
 "@
 
@@ -684,6 +685,24 @@ def import_finances(request):
         return HttpResponseRedirect('/import/')
     
     return HttpResponseRedirect('/import/')
+
+@login_required
+def person_details(request, cedula):
+    try:
+        person = Person.objects.get(cedula=cedula)
+        conflicts = Conflict.objects.filter(person=person)
+        financial_reports = []  # Add your financial reports query here if needed
+        
+        context = {
+            'myperson': person,
+            'conflicts': conflicts,
+            'financial_reports': financial_reports,
+        }
+        
+        return render(request, 'details.html', context)
+    except Person.DoesNotExist:
+        messages.error(request, f"Person with ID {cedula} not found")
+        return redirect('person_list')
 "@
 
 # Create core/conflicts.py
@@ -2877,7 +2896,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary" title="BienesyRentas">
+    <a href="" class="btn btn-custom-primary" title="BienesyRentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
@@ -3032,7 +3051,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </td>
                             <td>{{ person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
-                                <a href="" 
+                                <a href="{% url 'person_details' person.cedula %}" 
                                    class="btn btn-custom-primary btn-sm"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
@@ -3113,7 +3132,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
@@ -3305,7 +3324,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
-                                <a href="" 
+                                <a href="{% url 'person_details' conflict.person.cedula %}" 
                                    class="btn btn-custom-primary btn-sm"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
@@ -3983,7 +4002,254 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/finances.html" -Encoding utf8
-    
+
+# details template
+@" 
+{% extends "master.html" %}
+{% load humanize %}
+
+{% block title %}Detalles - {{ myperson.nombre_completo }}{% endblock %}
+{% block navbar_title %}{{ myperson.nombre_completo }}{% endblock %}
+
+{% block navbar_buttons %}
+<a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
+    <i class="fas fa-wrench"></i>
+</a>
+<a href="/" class="btn btn-custom-primary"><i class="fas fa-arrow-right"></i></a>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 mb-4"> {# Column for Informacion Personal - half width #}
+        <div class="card h-100"> {# Added h-100 for equal height #}
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Informacion Personal</h5>
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <tr>
+                        <th>ID:</th>
+                        <td>{{ myperson.cedula }}</td>
+                    </tr>
+                    <tr>
+                        <th>Nombre:</th>
+                        <td>{{ myperson.nombre_completo }}</td>
+                    </tr>
+                    <tr>
+                        <th>Cargo:</th>
+                        <td>{{ myperson.cargo }}</td>
+                    </tr>
+                    <tr>
+                        <th>Correo:</th>
+                        <td>{{ myperson.correo }}</td>
+                    </tr>
+                    <tr>
+                        <th>Compania:</th>
+                        <td>{{ myperson.compania }}</td>
+                    </tr>
+                    <tr>
+                        <th>Estado:</th>
+                        <td>
+                            <span class="badge bg-{% if myperson.estado == 'Activo' %}success{% else %}danger{% endif %}">
+                                {{ myperson.estado }}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Por revisar:</th>
+                        <td>
+                            {% if myperson.revisar %}
+                                <span class="badge bg-warning text-dark">Si</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Comentarios:</th>
+                        <td>{{ myperson.comments|linebreaks }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-4"> {# Column for Conflictos Declarados - half width #}
+        <div class="card h-100"> {# Added h-100 for equal height #}
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Conflictos Declarados</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if conflicts %}
+                {% for conflict in conflicts %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0">
+                        <tbody>
+                            <tr>
+                                <th scope="row">Fecha de Inicio</th>
+                                <td>{{ conflict.fecha_inicio|date:"d/m/Y"|default:"-" }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Accionista de algun proveedor del grupo</th>
+                                <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Familiar de algun accionista, proveedor o empleado</th>
+                                <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Accionista de alguna compania del grupo</th>
+                                <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Actividades extralaborales</th>
+                                <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Negocios o bienes con empleados del grupo</th>
+                                <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Participacion en juntas o consejos directivos</th>
+                                <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Potencial conflicto diferente a los anteriores</th>
+                                <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Consciente del codigo de conducta empresarial</th>
+                                <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Veracidad de la informacion consignada</th>
+                                <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Familiar de algun funcionario publico</th>
+                                <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Relacion con el sector publico o funcionario publico</th>
+                                <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <hr> {% endfor %}
+                {% else %}
+                <p class="text-center py-4">No hay conflictos declarados disponibles</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row"> {# New row for Reportes Financieros #}
+    <div class="col-md-12 mb-4"> {# Full width column for Reportes Financieros #}
+        <div class="card">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Reportes Financieros</h5>
+                <div>
+                    <span class="badge bg-primary">{{ financial_reports.count }} periodos</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive table-container">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead class="table-fixed-header">
+                            <tr>
+                                <th>Ano</th>
+                                <th scope="col">Variaciones</th>
+                                <th>Activos</th>
+                                <th>Pasivos</th>
+                                <th>Ingresos</th>
+                                <th>Patrimonio</th>
+                                <th>Banco</th>
+                                <th>Bienes</th>
+                                <th>Inversiones</th>
+                                <th>Apalancamiento</th>
+                                <th>Endeudamiento</th>
+                                <th>Indice</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for report in financial_reports %}
+                            <tr>
+                                <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
+                                <th>Relativa</th>
+                                <td>{{ report.activos_var_rel|default:"-" }}</td>
+                                <td>{{ report.pasivos_var_rel|default:"-" }}</td>
+                                <td>{{ report.ingresos_var_rel|default:"-" }}</td>
+                                <td>{{ report.patrimonio_var_rel|default:"-" }}</td>
+                                <td>{{ report.banco_saldo_var_rel|default:"-" }}</td>
+                                <td>{{ report.bienes_var_rel|default:"-" }}</td>
+                                <td>{{ report.inversiones_var_rel|default:"-" }}</td>
+                                <td>{{ report.apalancamiento_var_rel|default:"-" }}</td>
+                                <td>{{ report.endeudamiento_var_rel|default:"-" }}</td>
+                                <td>{{ report.aum_pat_subito|default:"-" }}</td>
+                            </tr>
+                            <tr>
+                                <th></th>
+                                <th scope="col">Absoluta</th>
+                                <td>{{ report.activos_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.pasivos_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.ingresos_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.patrimonio_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.banco_saldo_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.bienes_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.inversiones_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.apalancamiento_var_abs|default:"-" }}</td>
+                                <td>{{ report.endeudamiento_var_abs|default:"-" }}</td>
+                                <td>{{ report.capital_var_abs|intcomma|default:"-" }}</td>
+                            </tr>
+                            <tr>
+                                <td></td>
+                                <th scope="col">Total</th>
+                                <td>&#36;{{ report.activos|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.pasivos|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.ingresos|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.patrimonio|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.banco_saldo|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.bienes|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.inversiones|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>{{ report.apalancamiento|floatformat:2|default:"-" }}</td>
+                                <td>{{ report.endeudamiento|floatformat:2|default:"-" }}</td>
+                                <td>&#36;{{ report.capital|floatformat:2|intcomma|default:"-" }}</td>
+                            </tr>
+                            <tr>
+                                <th></th>
+                                <th scope="col">Cant.</th>
+                                <td></td>
+                                <td>{{ report.cant_deudas|default:"-" }}</td>
+                                <td>{{ report.cant_ingresos|default:"-" }}</td>
+                                <td></td>
+                                <td>C{{ report.cant_cuentas|default:"-" }} B{{ report.cant_bancos|default:"-" }}</td>
+                                <td>{{ report.cant_bienes|default:"-" }}</td>
+                                <td>{{ report.cant_inversiones|default:"-" }}</td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                                
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center py-4">
+                                    No hay reportes financieros disponibles
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/details.html" -Encoding utf8
+
 # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
     $settingsContent = $settingsContent -replace "INSTALLED_APPS = \[", "INSTALLED_APPS = [
