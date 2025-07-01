@@ -248,7 +248,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_persons, import_tcs)
+                   import_conflicts, conflict_list, import_persons, import_tcs, import_protected_excel)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -290,6 +290,7 @@ urlpatterns = [
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
     path('import-tcs/', views.import_tcs, name='import_tcs'),
+    path('import-protected-excel/', views.import_protected_excel, name='import_protected_excel'),
 ]
 "@
 
@@ -311,6 +312,8 @@ from django.shortcuts import render
 from core.models import Person, Conflict
 from django.db.models import Q
 import subprocess
+import msoffcrypto
+import io
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -612,6 +615,71 @@ def import_tcs(request):
             messages.error(request, f'Error procesando archivos PDF: {str(e)}')
         except Exception as e:
             messages.error(request, f'Error procesando archivos de tarjetas: {str(e)}')
+        
+        return HttpResponseRedirect('/import/')
+    
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def import_protected_excel(request):
+    """View for importing protected Excel files and running analysis"""
+    if request.method == 'POST' and request.FILES.get('protected_excel_file'):
+        excel_file = request.FILES['protected_excel_file']
+        password = request.POST.get('excel_password', '')
+        
+        try:
+            # Save the original file temporarily
+            temp_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'temp_protected.xlsx')
+            with open(temp_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+            
+            # Try to decrypt the file if password is provided
+            decrypted_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'data.xlsx')
+            
+            if password:
+                try:
+                    with open(temp_path, 'rb') as f:
+                        file = msoffcrypto.OfficeFile(f)
+                        file.load_key(password=password)
+                        decrypted = io.BytesIO()
+                        file.decrypt(decrypted)
+                        
+                        with open(decrypted_path, 'wb') as out:
+                            out.write(decrypted.getvalue())
+                except Exception as e:
+                    messages.error(request, f'Error al desproteger el archivo: {str(e)}')
+                    return HttpResponseRedirect('/import/')
+            else:
+                # If no password, just copy the file
+                import shutil
+                shutil.copyfile(temp_path, decrypted_path)
+            
+            # Remove the temporary file
+            os.remove(temp_path)
+            
+            # Run the analysis scripts in sequence
+            try:
+                # Run cats.py analysis
+                subprocess.run(['python', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
+                
+                # Run nets.py analysis
+                subprocess.run(['python', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
+                
+                # Run trends.py analysis
+                subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
+                
+                # Remove the data.xlsx file after processing
+                os.remove(decrypted_path)
+                
+                messages.success(request, 'Archivo procesado exitosamente y análisis completado!')
+            except subprocess.CalledProcessError as e:
+                messages.error(request, f'Error ejecutando análisis: {str(e)}')
+            except Exception as e:
+                messages.error(request, f'Error durante el análisis: {str(e)}')
+            
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo protegido: {str(e)}')
         
         return HttpResponseRedirect('/import/')
     
@@ -1638,9 +1706,16 @@ def calculate_sudden_wealth_increase(df):
     return df
 
 def save_results(df, excel_filename="tables/trends/trends.xlsx"):
-    """Save results to Excel."""
+    """Save results to Excel with modified column names."""
     try:
-        df.to_excel(excel_filename, index=False)
+        # Create a copy of the dataframe to avoid modifying the original
+        df_output = df.copy()
+        
+        # Rename columns for output
+        df_output.columns = [col.replace('Usuario', 'Cedula').replace('Compañía', 'Compania') 
+                           for col in df_output.columns]
+        
+        df_output.to_excel(excel_filename, index=False)
         print(f"Data saved to {excel_filename}")
     except Exception as e:
         print(f"Error saving file: {e}")
@@ -1680,8 +1755,6 @@ def main():
         # Save basic trends
         save_results(df_combined, "core/src/trends.xlsx")
         
-        # The 'df_yearly' calculation and saving to 'overTrends.xlsx' and 'data.json' have been removed.
-        
     except FileNotFoundError as e:
         print(f"Error: Required file not found - {e}")
     except Exception as e:
@@ -1703,7 +1776,7 @@ import traceback
 
 # Configuration
 PDF_FOLDER = os.path.join("core", "src", "visa")
-OUTPUT_FOLDER = os.path.join("core", "src")
+OUTPUT_FOLDER = os.path.join("core", "src", "visa")
 COLUMN_NAMES = [
     "Archivo", "Tarjetahabiente", "Número de Tarjeta", "Número de Autorización",
     "Fecha de Transacción", "Descripción", "Valor Original",
@@ -2648,7 +2721,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_protected_excel' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
@@ -2671,51 +2744,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 {% endif %}
             {% endfor %}
+            <div class="card-footer">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success">
+                        {{ protected_count }} Bienes y Rentas Registradas
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
 
-        <!-- TC Card -->
-        <div class="col-md-3 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
-                        {% csrf_token %}
+    <!-- TCs Card -->
+    <div class="col-md-3 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple accept=".pdf" required>
+                        <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
                         <div class="mb-3">
-                            <input type="file" 
-                                class="form-control form-control-lg" 
-                                id="visa_pdf_files" 
-                                name="visa_pdf_files" 
-                                multiple 
-                                accept=".pdf"
-                                required>
-                            <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
-                        </div>
-                        <div class="mb-3">
-                            <input type="password" 
-                                class="form-control form-control-lg" 
-                                id="visa_pdf_password" 
-                                name="visa_pdf_password" 
-                                placeholder="Clave (opcional)">
+                            <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password">
                             <div class="form-text">Ingrese la clave si los PDFs están protegidos</div>
                         </div>
-                        <button type="submit" class="btn btn-custom-primary btn-lg w-100">
-                            <i class="fas fa-credit-card"></i> Importar TCs
-                        </button>
-                    </form>
-                </div>
-                {% for message in messages %}
-                    {% if 'import_tcs' in message.tags %}
-                    <div class="card-footer">
-                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
                     </div>
-                    {% endif %}
-                {% endfor %}
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar TCs</button>
+                </form>
+            </div>
+            {% for message in messages %}
+                {% if 'import_tcs' in message.tags %}
+                <div class="card-footer">
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+            <div class="card-footer">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success">
+                        {{ tc_count }} Tarjetas Registradas
+                    </span>
+                </div>
             </div>
         </div>
-</div>
+    </div>
 
 <!-- Analysis Results Row -->
 <div class="row">
