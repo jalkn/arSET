@@ -248,7 +248,7 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_persons, import_tcs, import_protected_excel)
+                   import_conflicts, conflict_list, import_persons, import_tcs, import_finances)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -290,7 +290,7 @@ urlpatterns = [
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
     path('import-tcs/', views.import_tcs, name='import_tcs'),
-    path('import-protected-excel/', views.import_protected_excel, name='import_protected_excel'),
+    path('import-protected-excel/', views.import_finances, name='import_finances'),
 ]
 "@
 
@@ -621,10 +621,10 @@ def import_tcs(request):
     return HttpResponseRedirect('/import/')
 
 @login_required
-def import_protected_excel(request):
+def import_finances(request):
     """View for importing protected Excel files and running analysis"""
-    if request.method == 'POST' and request.FILES.get('protected_excel_file'):
-        excel_file = request.FILES['protected_excel_file']
+    if request.method == 'POST' and request.FILES.get('finances_file'):
+        excel_file = request.FILES['finances_file']
         password = request.POST.get('excel_password', '')
         
         try:
@@ -1705,15 +1705,23 @@ def calculate_sudden_wealth_increase(df):
     
     return df
 
-def save_results(df, excel_filename="tables/trends/trends.xlsx"):
+def save_results(df, excel_filename="core/src/trends.xlsx"):
     """Save results to Excel with modified column names."""
     try:
         # Create a copy of the dataframe to avoid modifying the original
         df_output = df.copy()
         
+        # Convert Usuario to string if it exists (before renaming)
+        if 'Usuario' in df_output.columns:
+            df_output['Usuario'] = df_output['Usuario'].astype(str)
+        
         # Rename columns for output
         df_output.columns = [col.replace('Usuario', 'Cedula').replace('Compañía', 'Compania') 
                            for col in df_output.columns]
+        
+        # Ensure Cedula is string after renaming
+        if 'Cedula' in df_output.columns:
+            df_output['Cedula'] = df_output['Cedula'].astype(str)
         
         df_output.to_excel(excel_filename, index=False)
         print(f"Data saved to {excel_filename}")
@@ -2721,10 +2729,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_protected_excel' %}">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_finances' %}">
                     {% csrf_token %}
                     <div class="mb-3">
-                        <input type="file" class="form-control" id="protected_excel_file" name="protected_excel_file" required>
+                        <input type="file" class="form-control" id="finances_file" name="finances_file" required>
                         <div class="form-text">El archivo debe ser dataHistoricaPBI.xlsx</div>
                         <div class="mb-3">
                             <input type="password" class="form-control" id="excel_password" name="excel_password">
@@ -2735,7 +2743,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </form>
             </div>
             {% for message in messages %}
-                {% if 'import_protected_excel' in message.tags %}
+                {% if 'import_finances' in message.tags %}
                 <div class="card-footer">
                     <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
                         {{ message }}
@@ -2869,7 +2877,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="" class="btn btn-custom-primary" title="BienesyRentas">
+    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary" title="BienesyRentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
@@ -3105,7 +3113,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
@@ -3370,14 +3378,14 @@ document.addEventListener('DOMContentLoaded', function() {
 {% extends "master.html" %}
 
 {% block title %}Tarjetas de Credito{% endblock %}
-{% block navbar_title %}Tarjetas de CrÃ©dito{% endblock %}
+{% block navbar_title %}Tarjetas de Credito{% endblock %}
 
 {% block navbar_buttons %}
 <div>
     <a href="" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary">
