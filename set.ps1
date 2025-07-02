@@ -365,17 +365,22 @@ def import_persons(request):
     if request.method == 'POST' and request.FILES.get('excel_file'):
         excel_file = request.FILES['excel_file']
         try:
-            dest_path = "core/src/Personas.xlsx"
-            with open(dest_path, 'wb+') as destination:
+            # Define the path to save the uploaded file temporarily
+            temp_upload_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'uploaded_persons_temp.xlsx')
+            with open(temp_upload_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
             
-            import pandas as pd
-            from core.models import Person
+            # Read the Excel file into a pandas DataFrame
+            df = pd.read_excel(temp_upload_path)
             
-            df = pd.read_excel(dest_path)
+            # Remove the temporary uploaded file
+            os.remove(temp_upload_path)
+
+            # Strip whitespace and convert column names to lowercase for consistent mapping
             df.columns = df.columns.str.strip().str.lower()
             
+            # Define column mapping from Excel columns to model fields
             column_mapping = {
                 'nombre completo': 'nombre_completo',
                 'correo': 'correo',
@@ -383,21 +388,52 @@ def import_persons(request):
                 'estado': 'estado',
                 'compania': 'compania',
                 'cargo': 'cargo',
-                'activo': 'activo'
+                'activo': 'activo' # Assuming 'activo' might be an input column for 'estado'
             }
             
+            # Rename columns based on the mapping
             df = df.rename(columns=column_mapping)
-            required_columns = ['nombre_completo', 'correo', 'cedula', 'estado', 'compania', 'cargo', 'activo']
-            df = df[[col for col in required_columns if col in df.columns]]
             
+            # Ensure 'estado' column exists, if 'activo' is present, use it to determine 'estado'
             if 'activo' in df.columns and 'estado' not in df.columns:
                 df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
+            elif 'estado' not in df.columns:
+                df['estado'] = 'Activo' # Default to 'Activo' if neither 'estado' nor 'activo' is present
+
+            # Convert 'cedula' to string type to prevent issues with mixed types
+            if 'cedula' in df.columns:
+                df['cedula'] = df['cedula'].astype(str)
+            else:
+                messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
+                return HttpResponseRedirect('/import/')
             
-            df['cedula'] = df['cedula'].astype(str)
-            
+            # Convert 'nombre_completo' to title case if the column exists
             if 'nombre_completo' in df.columns:
                 df['nombre_completo'] = df['nombre_completo'].str.title()
+            else:
+                messages.error(request, "Error: 'Nombre Completo' column not found in the Excel file.")
+                return HttpResponseRedirect('/import/')
+
+            # Define the columns for the output Excel file and ensure they are present
+            output_columns_df = pd.DataFrame(columns=['NOMBRE COMPLETO', 'Cedula', 'Compania', 'CARGO'])
             
+            # Populate the output DataFrame with data from the processed DataFrame
+            if 'nombre_completo' in df.columns:
+                output_columns_df['NOMBRE COMPLETO'] = df['nombre_completo']
+            if 'cedula' in df.columns:
+                output_columns_df['Cedula'] = df['cedula']
+            if 'compania' in df.columns:
+                output_columns_df['Compania'] = df['compania']
+            if 'cargo' in df.columns:
+                output_columns_df['CARGO'] = df['cargo']
+
+            # Define the path for the output Excel file
+            output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
+            
+            # Save the filtered and formatted DataFrame to a new Excel file
+            output_columns_df.to_excel(output_excel_path, index=False)
+            
+            # Iterate over the DataFrame and update/create Person objects in the database
             for _, row in df.iterrows():
                 Person.objects.update_or_create(
                     cedula=row['cedula'],
@@ -410,7 +446,7 @@ def import_persons(request):
                     }
                 )
             
-            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados.')
+            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados y Personas.xlsx generado.')
         except Exception as e:
             messages.error(request, f'Error procesando archivo de personas: {str(e)}')
         
@@ -1789,6 +1825,167 @@ def main():
 
 if __name__ == "__main__":
     main()
+"@
+
+# Create idTrends.py
+Set-Content -Path "core/idTrends.py" -Value @"
+import pandas as pd
+import re
+import numpy as np
+
+def get_trend_symbol(value):
+    """Determine the trend symbol based on the percentage change."""
+    try:
+        value_float = float(value.strip('%')) / 100
+        if pd.isna(value_float):
+            return "➡️"
+        elif value_float > 0.1:  # more than 10% increase
+            return "📈"
+        elif value_float < -0.1:  # more than 10% decrease
+            return "📉"
+        else:
+            return "➡️"  # relatively stable
+    except Exception:
+        return "➡️"
+
+def clean_and_convert(value, keep_trend=False):
+    """Clean and convert to float, optionally preserving trend symbol."""
+    if pd.isna(value):
+        return value
+    
+    str_value = str(value)
+    
+    # Handle "N/A ➡️" case specifically
+    if "N/A ➡️" in str_value:
+        return np.nan
+    
+    if keep_trend:
+        # Extract numeric part (including percentages)
+        numeric_part = re.sub(r'[^\d.%\-]', '', str_value)
+        try:
+            numeric_value = float(numeric_part.strip('%')) / 100 if '%' in numeric_part else float(numeric_part)
+            trend_symbol = get_trend_symbol(str_value)
+            return f"{numeric_value:.2%}"[:-1] + trend_symbol  # Format as percentage without % and add symbol
+        except:
+            return None
+    else:
+        # For absolute values, just clean numbers
+        cleaned = re.sub(r'[^\d.-]', '', str_value)
+        try:
+            return float(cleaned) if cleaned else None
+        except:
+            return None
+
+# Read the Excel file
+file_path = 'core/src/trends.xlsx'
+df = pd.read_excel(file_path)
+
+# Convert 'Cedula' column to string
+df['Cedula'] = df['Cedula'].astype(str)
+
+# Ensure all specified columns exist (create empty ones if they don't)
+required_columns = [
+    'Cedula', 'Nombre', 'Compania', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 
+    'Año Creación', 'Activos', 'Cant_Bienes', 'Cant_Bancos', 'Cant_Cuentas', 
+    'Cant_Inversiones', 'Pasivos', 'Cant_Deudas', 'Patrimonio', 'Apalancamiento', 
+    'Endeudamiento', 'Capital', 'Aum. Pat. Subito', 'Activos Var. Abs.', 
+    'Activos Var. Rel.', 'Pasivos Var. Abs.', 'Pasivos Var. Rel.', 
+    'Patrimonio Var. Abs.', 'Patrimonio Var. Rel.', 'Apalancamiento Var. Abs.', 
+    'Apalancamiento Var. Rel.', 'Endeudamiento Var. Abs.', 'Endeudamiento Var. Rel.', 
+    'BancoSaldo', 'Bienes', 'Inversiones', 'BancoSaldo Var. Abs.', 
+    'BancoSaldo Var. Rel.', 'Bienes Var. Abs.', 'Bienes Var. Rel.', 
+    'Inversiones Var. Abs.', 'Inversiones Var. Rel.', 'Ingresos', 
+    'Cant_Ingresos', 'Ingresos Var. Abs.', 'Ingresos Var. Rel.'
+]
+
+# Add any missing columns with NaN values
+for col in required_columns:
+    if col not in df.columns:
+        df[col] = None
+
+# List of columns to convert to float (absolute variation columns)
+float_columns = [
+    'Activos Var. Abs.', 
+    'Pasivos Var. Abs.', 
+    'Patrimonio Var. Abs.', 
+    'Apalancamiento Var. Abs.', 
+    'Endeudamiento Var. Abs.',  
+    'BancoSaldo Var. Abs.', 
+    'Bienes Var. Abs.', 
+    'Inversiones Var. Abs.', 
+    'Ingresos Var. Abs.'
+]
+
+# List of columns to clean infinity values and keep trend symbols
+trend_columns = [
+    'Apalancamiento', 
+    'Endeudamiento', 
+    'Activos Var. Rel.', 
+    'Pasivos Var. Rel.', 
+    'Patrimonio Var. Rel.', 
+    'Apalancamiento Var. Rel.', 
+    'Endeudamiento Var. Rel.', 
+    'BancoSaldo Var. Rel.', 
+    'Bienes Var. Rel.', 
+    'Inversiones Var. Rel.', 
+    'Ingresos Var. Rel.'
+]
+
+# Convert absolute variation columns to float
+for col in float_columns:
+    if col in df.columns:
+        df[col] = df[col].apply(lambda x: clean_and_convert(x, keep_trend=False))
+
+# Process trend columns (handle infinity and preserve trend symbols)
+for col in trend_columns:
+    if col in df.columns:
+        df[col] = df[col].apply(lambda x: clean_and_convert(x, keep_trend=True) 
+                          if not pd.isna(x) and str(x).lower() not in ['inf', '-inf', 'inf%'] 
+                          else np.nan)
+
+# Special handling for 'Aum. Pat. Subito' column
+if 'Aum. Pat. Subito' in df.columns:
+    df['Aum. Pat. Subito'] = df['Aum. Pat. Subito'].apply(
+        lambda x: np.nan if pd.isna(x) or "N/A ➡️" in str(x) else x
+    )
+
+# Reorder columns to match the specified order
+df = df[required_columns]
+
+# Read Personas.xlsx and merge with the current dataframe
+personas_path = 'core/src/Personas.xlsx'
+try:
+    personas_df = pd.read_excel(personas_path)
+    
+    # Convert 'Cedula' to string in both dataframes to ensure matching
+    personas_df['Cedula'] = personas_df['Cedula'].astype(str)
+    df['Cedula'] = df['Cedula'].astype(str)
+    
+    # Rename columns in personas_df to match df column names
+    personas_df = personas_df.rename(columns={
+        'NOMBRE COMPLETO': 'Nombre',
+        'CARGO': 'Cargo'
+    })
+    
+    # Select only the columns we want to merge
+    personas_merge = personas_df[['Cedula', 'Nombre', 'Compania', 'Cargo', 'Estado', 'Correo']]
+    
+    # Merge with the main dataframe on Cedula, keeping all records from df
+    df = pd.merge(df, personas_merge, on='Cedula', how='left', suffixes=('', '_personas'))
+    
+    # For the merged columns, prioritize values from personas_df
+    for col in ['Nombre', 'Compania', 'Cargo']:
+        df[col] = df[f'{col}_personas'].fillna(df[col])
+        df = df.drop(f'{col}_personas', axis=1)
+        
+except Exception as e:
+    print(f"Error merging Personas.xlsx: {e}")
+
+# Save the modified dataframe back to Excel
+output_path = 'core/src/idTrends.xlsx'
+df.to_excel(output_path, index=False)
+
+print(f"File has been modified and saved as {output_path}")
 "@
 
 # Create tcs.py
