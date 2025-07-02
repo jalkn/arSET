@@ -58,31 +58,40 @@ class Person(models.Model):
         return f"{self.nombre_completo} ({self.cedula})"
 
 class Conflict(models.Model):
-    id = models.AutoField(primary_key=True)  
+    id = models.AutoField(primary_key=True)
     person = models.ForeignKey(
-        Person, 
-        on_delete=models.CASCADE, 
+        Person,
+        on_delete=models.CASCADE,
         related_name='conflicts',
-        to_field='cedula', 
-        db_column='cedula' 
+        to_field='cedula',
+        db_column='cedula'
     )
     fecha_inicio = models.DateField(null=True, blank=True)
     q1 = models.BooleanField(default=False)
+    q1_detalle = models.TextField(blank=True) # New field
     q2 = models.BooleanField(default=False)
+    q2_detalle = models.TextField(blank=True) # New field
     q3 = models.BooleanField(default=False)
+    q3_detalle = models.TextField(blank=True) # New field
     q4 = models.BooleanField(default=False)
+    q4_detalle = models.TextField(blank=True) # New field
     q5 = models.BooleanField(default=False)
+    q5_detalle = models.TextField(blank=True) # New field
     q6 = models.BooleanField(default=False)
+    q6_detalle = models.TextField(blank=True) # New field
     q7 = models.BooleanField(default=False)
+    q7_detalle = models.TextField(blank=True) # New field
     q8 = models.BooleanField(default=False)
     q9 = models.BooleanField(default=False)
     q10 = models.BooleanField(default=False)
+    q10_detalle = models.TextField(blank=True) # New field
     q11 = models.BooleanField(default=False)
+    q11_detalle = models.TextField(blank=True) # New field
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Conflictos para {self.person.nombre_completo} (ID: {self.id})"  
+        return f"Conflictos para {self.person.nombre_completo} (ID: {self.id})"
 "@
 
 # Create admin.py with enhanced configuration
@@ -97,12 +106,18 @@ class ConflictForm(forms.ModelForm):
     class Meta:
         model = Conflict
         fields = '__all__'
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Replace boolean field widgets with custom display
         for field_name in ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11']:
             self.fields[field_name].widget = forms.Select(choices=[(True, 'YES'), (False, 'NO')])
+        # Make detail fields optional as they might not always be filled
+        for field_name in ['q1_detalle', 'q2_detalle', 'q3_detalle', 'q4_detalle', 'q5_detalle',
+                           'q6_detalle', 'q7_detalle', 'q10_detalle', 'q11_detalle']: # New detail fields
+            if field_name in self.fields: # Check if field exists to prevent errors if not added in models
+                self.fields[field_name].required = False # New field
+
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
@@ -110,10 +125,10 @@ class PersonAdmin(admin.ModelAdmin):
     search_fields = ('cedula', 'nombre_completo', 'correo')
     list_filter = ('estado', 'compania', 'revisar')
     list_editable = ('revisar',)
-    
+
     # Custom fields to show in detail view
     readonly_fields = ('cedula_with_actions', 'conflicts_link')
-    
+
     fieldsets = (
         (None, {
             'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
@@ -123,13 +138,13 @@ class PersonAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
-    
+
     def cedula_with_actions(self, obj):
         if obj.pk:
             change_url = reverse('admin:core_person_change', args=[obj.pk])
             history_url = reverse('admin:core_person_history', args=[obj.pk])
             add_url = reverse('admin:core_person_add')
-            
+
             return format_html(
                 '{} <div class="nowrap">'
                 '<a href="{}" class="changelink">Change</a> &nbsp;'
@@ -143,7 +158,7 @@ class PersonAdmin(admin.ModelAdmin):
             )
         return obj.cedula
     cedula_with_actions.short_description = 'Cedula'
-    
+
     def conflicts_link(self, obj):
         if obj.pk:
             conflict = obj.conflicts.first()
@@ -151,7 +166,7 @@ class PersonAdmin(admin.ModelAdmin):
                 change_url = reverse('admin:core_conflict_change', args=[conflict.pk])
                 add_url = reverse('admin:core_conflict_add') + f'?person={obj.pk}'
                 list_url = reverse('admin:core_conflict_changelist') + f'?q={obj.cedula}'
-                
+
                 return format_html(
                     '<div class="nowrap">'
                     '<a href="{}" class="changelink">View/Edit Conflicts</a> &nbsp;'
@@ -171,7 +186,7 @@ class PersonAdmin(admin.ModelAdmin):
         return "-"
     conflicts_link.short_description = 'Conflict Records'
     conflicts_link.allow_tags = True
-    
+
     def get_fieldsets(self, request, obj=None):
         if obj is None:  # Add view
             return [(None, {'fields': ('cedula', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')})]
@@ -180,39 +195,72 @@ class PersonAdmin(admin.ModelAdmin):
 @admin.register(Conflict)
 class ConflictAdmin(admin.ModelAdmin):
     form = ConflictForm
-    list_display = ('person', 'fecha_inicio') + tuple(
-        f'get_{field}_display' for field in ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11']
-    )
+    # Add new detail fields to list_display
+    list_display = ('person', 'fecha_inicio',
+                    'get_q1_display', 'q1_detalle',
+                    'get_q2_display', 'q2_detalle',
+                    'get_q3_display', 'q3_detalle',
+                    'get_q4_display', 'q4_detalle',
+                    'get_q5_display', 'q5_detalle',
+                    'get_q6_display', 'q6_detalle',
+                    'get_q7_display', 'q7_detalle',
+                    'get_q8_display', 'get_q9_display',
+                    'get_q10_display', 'q10_detalle',
+                    'get_q11_display', 'q11_detalle')
+    # Add new detail fields to list_filter and search_fields if desired
     list_filter = ('q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11')
-    search_fields = ('person__nombre_completo', 'person__cedula')
+    search_fields = ('person__nombre_completo', 'person__cedula',
+                     'q1_detalle', 'q2_detalle', 'q3_detalle', 'q4_detalle', # New search fields
+                     'q5_detalle', 'q6_detalle', 'q7_detalle', 'q10_detalle', 'q11_detalle') # New search fields
     raw_id_fields = ('person',)
 
+    # Update fieldsets to include new detail fields
     fieldsets = (
         (None, {
             'fields': ('person', 'fecha_inicio')
         }),
         ('Conflict Questions', {
-            'fields': ('q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10', 'q11'),
-            'description': 'Answer "YES" or "NO" to each question'
+            'fields': (
+                ('q1', 'q1_detalle'), # Group boolean with its detail
+                ('q2', 'q2_detalle'), # Group boolean with its detail
+                ('q3', 'q3_detalle'), # Group boolean with its detail
+                ('q4', 'q4_detalle'), # Group boolean with its detail
+                ('q5', 'q5_detalle'), # Group boolean with its detail
+                ('q6', 'q6_detalle'), # Group boolean with its detail
+                ('q7', 'q7_detalle'), # Group boolean with its detail
+                'q8', 'q9',
+                ('q10', 'q10_detalle'), # Group boolean with its detail
+                ('q11', 'q11_detalle'), # Group boolean with its detail
+            ),
+            'description': 'Answer "YES" or "NO" to each question and provide details where applicable'
         }),
     )
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['q1'].label = 'Accionista de proveedor'
+        form.base_fields['q1_detalle'].label = 'Accionista de proveedor (Detalle)' # New label
         form.base_fields['q2'].label = 'Familiar de accionista/empleado'
+        form.base_fields['q2_detalle'].label = 'Familiar de accionista/empleado (Detalle)' # New label
         form.base_fields['q3'].label = 'Accionista del grupo'
+        form.base_fields['q3_detalle'].label = 'Accionista del grupo (Detalle)' # New label
         form.base_fields['q4'].label = 'Actividades extralaborales'
+        form.base_fields['q4_detalle'].label = 'Actividades extralaborales (Detalle)' # New label
         form.base_fields['q5'].label = 'Negocios con empleados'
+        form.base_fields['q5_detalle'].label = 'Negocios con empleados (Detalle)' # New label
         form.base_fields['q6'].label = 'Participacion en juntas'
+        form.base_fields['q6_detalle'].label = 'Participacion en juntas (Detalle)' # New label
         form.base_fields['q7'].label = 'Otro conflicto'
+        form.base_fields['q7_detalle'].label = 'Otro conflicto (Detalle)' # New label
         form.base_fields['q8'].label = 'Conoce codigo de conducta'
         form.base_fields['q9'].label = 'Veracidad de informacion'
         form.base_fields['q10'].label = 'Familiar de funcionario'
+        form.base_fields['q10_detalle'].label = 'Familiar de funcionario (Detalle)' # New label
         form.base_fields['q11'].label = 'Relacion con sector publico'
+        form.base_fields['q11_detalle'].label = 'Relacion con sector publico (Detalle)' # New label
         return form
 
-    # YES/NO display methods for list view
+    # YES/NO display methods for list view (no changes here for detail fields)
     def get_q1_display(self, obj): return "YES" if obj.q1 else "NO"
     get_q1_display.short_description = 'Accionista de proveedor'
     def get_q2_display(self, obj): return "YES" if obj.q2 else "NO"
@@ -348,13 +396,13 @@ def register_superuser(request):
 
 class ImportView(LoginRequiredMixin, TemplateView):
     template_name = 'import.html'
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
         return context
-    
+
 @login_required
 def main(request):
     return render(request, 'home.html')
@@ -370,16 +418,16 @@ def import_persons(request):
             with open(temp_upload_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
-            
+
             # Read the Excel file into a pandas DataFrame
             df = pd.read_excel(temp_upload_path)
-            
+
             # Remove the temporary uploaded file
             os.remove(temp_upload_path)
 
             # Strip whitespace and convert column names to lowercase for consistent mapping
             df.columns = df.columns.str.strip().str.lower()
-            
+
             # Define column mapping from Excel columns to model fields
             column_mapping = {
                 'nombre completo': 'nombre_completo',
@@ -390,10 +438,10 @@ def import_persons(request):
                 'cargo': 'cargo',
                 'activo': 'activo' # Assuming 'activo' might be an input column for 'estado'
             }
-            
+
             # Rename columns based on the mapping
             df = df.rename(columns=column_mapping)
-            
+
             # Ensure 'estado' column exists, if 'activo' is present, use it to determine 'estado'
             if 'activo' in df.columns and 'estado' not in df.columns:
                 df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
@@ -406,7 +454,7 @@ def import_persons(request):
             else:
                 messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
                 return HttpResponseRedirect('/import/')
-            
+
             # Convert 'nombre_completo' to title case if the column exists
             if 'nombre_completo' in df.columns:
                 df['nombre_completo'] = df['nombre_completo'].str.title()
@@ -416,7 +464,7 @@ def import_persons(request):
 
             # Define the columns for the output Excel file and ensure they are present
             output_columns_df = pd.DataFrame(columns=['NOMBRE COMPLETO', 'Cedula', 'Compania', 'CARGO'])
-            
+
             # Populate the output DataFrame with data from the processed DataFrame
             if 'nombre_completo' in df.columns:
                 output_columns_df['NOMBRE COMPLETO'] = df['nombre_completo']
@@ -429,10 +477,10 @@ def import_persons(request):
 
             # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
-            
+
             # Save the filtered and formatted DataFrame to a new Excel file
             output_columns_df.to_excel(output_excel_path, index=False)
-            
+
             # Iterate over the DataFrame and update/create Person objects in the database
             for _, row in df.iterrows():
                 Person.objects.update_or_create(
@@ -445,13 +493,13 @@ def import_persons(request):
                         'cargo': row.get('cargo', ''),
                     }
                 )
-            
+
             messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados y Personas.xlsx generado.')
         except Exception as e:
             messages.error(request, f'Error procesando archivo de personas: {str(e)}')
-        
+
         return HttpResponseRedirect('/import/')
-    
+
     return HttpResponseRedirect('/import/')
 
 @login_required
@@ -464,16 +512,16 @@ def import_conflicts(request):
             with open(dest_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
-            
+
             subprocess.run(['python', 'core/conflicts.py'], check=True)
-            
+
             import pandas as pd
             from core.models import Person, Conflict
-            
+
             processed_file = "core/src/conflicts.xlsx"
             df = pd.read_excel(processed_file)
             df.columns = df.columns.str.lower().str.replace(' ', '_')
-            
+
             for _, row in df.iterrows():
                 try:
                     person, created = Person.objects.get_or_create(
@@ -485,35 +533,45 @@ def import_conflicts(request):
                             'cargo': row.get('cargo', '')
                         }
                     )
-                    
+
+                    # Update or create Conflict object with new detail fields
                     Conflict.objects.update_or_create(
                         person=person,
                         defaults={
                             'fecha_inicio': row.get('fecha_de_inicio', None),
                             'q1': bool(row.get('q1', False)),
+                            'q1_detalle': row.get('q1_detalle', ''), # New field
                             'q2': bool(row.get('q2', False)),
+                            'q2_detalle': row.get('q2_detalle', ''), # New field
                             'q3': bool(row.get('q3', False)),
+                            'q3_detalle': row.get('q3_detalle', ''), # New field
                             'q4': bool(row.get('q4', False)),
+                            'q4_detalle': row.get('q4_detalle', ''), # New field
                             'q5': bool(row.get('q5', False)),
+                            'q5_detalle': row.get('q5_detalle', ''), # New field
                             'q6': bool(row.get('q6', False)),
+                            'q6_detalle': row.get('q6_detalle', ''), # New field
                             'q7': bool(row.get('q7', False)),
+                            'q7_detalle': row.get('q7_detalle', ''), # New field
                             'q8': bool(row.get('q8', False)),
                             'q9': bool(row.get('q9', False)),
                             'q10': bool(row.get('q10', False)),
-                            'q11': bool(row.get('q11', False))
+                            'q10_detalle': row.get('q10_detalle', ''), # New field
+                            'q11': bool(row.get('q11', False)),
+                            'q11_detalle': row.get('q11_detalle', '') # New field
                         }
                     )
-                    
+
                 except Exception as e:
                     messages.error(request, f"Error processing row {row}: {str(e)}")
                     continue
-            
+
             messages.success(request, f'Archivo de conflictos importado exitosamente! {len(df)} registros procesados.')
         except Exception as e:
             messages.error(request, f'Error procesando archivo de conflictos: {str(e)}')
-        
+
         return HttpResponseRedirect('/import/')
-    
+
     return HttpResponseRedirect('/import/')
 
 @login_required
@@ -522,38 +580,38 @@ def person_list(request):
     status_filter = request.GET.get('status', '')
     cargo_filter = request.GET.get('cargo', '')
     compania_filter = request.GET.get('compania', '')
-    
+
     order_by = request.GET.get('order_by', 'nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
-    
+
     persons = Person.objects.all()
-    
+
     if search_query:
         persons = persons.filter(
             Q(nombre_completo__icontains=search_query) |
             Q(cedula__icontains=search_query) |
             Q(correo__icontains=search_query))
-    
+
     if status_filter:
         persons = persons.filter(estado=status_filter)
-    
+
     if cargo_filter:
         persons = persons.filter(cargo=cargo_filter)
-    
+
     if compania_filter:
         persons = persons.filter(compania=compania_filter)
-    
+
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     persons = persons.order_by(order_by)
-    
+
     cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-    
+
     paginator = Paginator(persons, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-    
+
     context = {
         'persons': page_obj,
         'page_obj': page_obj,
@@ -563,7 +621,7 @@ def person_list(request):
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
     }
-    
+
     return render(request, 'persons.html', context)
 
 @login_required
@@ -572,35 +630,35 @@ def conflict_list(request):
     compania_filter = request.GET.get('compania', '')
     column_filter = request.GET.get('column', '')
     answer_filter = request.GET.get('answer', '')
-    
+
     order_by = request.GET.get('order_by', 'person__nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
-    
+
     conflicts = Conflict.objects.select_related('person').all()
-    
+
     if search_query:
         conflicts = conflicts.filter(
             Q(person__nombre_completo__icontains=search_query) |
             Q(person__cedula__icontains=search_query) |
             Q(person__correo__icontains=search_query))
-    
+
     if compania_filter:
         conflicts = conflicts.filter(person__compania=compania_filter)
-    
+
     if column_filter and answer_filter:
         filter_kwargs = {f"{column_filter}": answer_filter.lower() == 'yes'}
         conflicts = conflicts.filter(**filter_kwargs)
-    
+
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     conflicts = conflicts.order_by(order_by)
-    
+
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-    
+
     paginator = Paginator(conflicts, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-    
+
     context = {
         'conflicts': page_obj,
         'page_obj': page_obj,
@@ -609,7 +667,7 @@ def conflict_list(request):
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
     }
-    
+
     return render(request, 'conflicts.html', context)
 
 @login_required
@@ -618,27 +676,27 @@ def import_tcs(request):
     if request.method == 'POST' and request.FILES.getlist('visa_pdf_files'):
         pdf_files = request.FILES.getlist('visa_pdf_files')
         password = request.POST.get('visa_pdf_password', '')
-        
+
         try:
             # Ensure visa directory exists
             visa_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'visa')
             os.makedirs(visa_dir, exist_ok=True)
-            
+
             # Save password if provided
             if password:
                 with open(os.path.join(visa_dir, 'password.txt'), 'w') as f:
                     f.write(password)
-            
+
             # Save all PDF files
             for pdf_file in pdf_files:
                 dest_path = os.path.join(visa_dir, pdf_file.name)
                 with open(dest_path, 'wb+') as destination:
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
-            
+
             # Process the PDFs
             subprocess.run(['python', 'core/tcs.py'], check=True, cwd=settings.BASE_DIR)
-            
+
             # Count processed transactions
             output_file = os.path.join(visa_dir, f"VISA_{datetime.now().strftime('%Y%m%d')}.xlsx")
             if os.path.exists(output_file):
@@ -646,15 +704,15 @@ def import_tcs(request):
                 record_count = len(df)
             else:
                 record_count = 0
-            
+
             messages.success(request, f'Archivos de tarjetas procesados exitosamente! {record_count} transacciones encontradas.')
         except subprocess.CalledProcessError as e:
             messages.error(request, f'Error procesando archivos PDF: {str(e)}')
         except Exception as e:
             messages.error(request, f'Error procesando archivos de tarjetas: {str(e)}')
-        
+
         return HttpResponseRedirect('/import/')
-    
+
     return HttpResponseRedirect('/import/')
 
 @login_required
@@ -663,17 +721,17 @@ def import_finances(request):
     if request.method == 'POST' and request.FILES.get('finances_file'):
         excel_file = request.FILES['finances_file']
         password = request.POST.get('excel_password', '')
-        
+
         try:
             # Save the original file temporarily
             temp_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'temp_protected.xlsx')
             with open(temp_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
-            
+
             # Try to decrypt the file if password is provided
             decrypted_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'data.xlsx')
-            
+
             if password:
                 try:
                     with open(temp_path, 'rb') as f:
@@ -681,7 +739,7 @@ def import_finances(request):
                         file.load_key(password=password)
                         decrypted = io.BytesIO()
                         file.decrypt(decrypted)
-                        
+
                         with open(decrypted_path, 'wb') as out:
                             out.write(decrypted.getvalue())
                 except Exception as e:
@@ -691,35 +749,35 @@ def import_finances(request):
                 # If no password, just copy the file
                 import shutil
                 shutil.copyfile(temp_path, decrypted_path)
-            
+
             # Remove the temporary file
             os.remove(temp_path)
-            
+
             # Run the analysis scripts in sequence
             try:
                 # Run cats.py analysis
                 subprocess.run(['python', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
-                
+
                 # Run nets.py analysis
                 subprocess.run(['python', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
-                
+
                 # Run trends.py analysis
                 subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
-                
+
                 # Remove the data.xlsx file after processing
                 os.remove(decrypted_path)
-                
+
                 messages.success(request, 'Archivo procesado exitosamente y análisis completado!')
             except subprocess.CalledProcessError as e:
                 messages.error(request, f'Error ejecutando análisis: {str(e)}')
             except Exception as e:
                 messages.error(request, f'Error durante el análisis: {str(e)}')
-            
+
         except Exception as e:
             messages.error(request, f'Error procesando archivo protegido: {str(e)}')
-        
+
         return HttpResponseRedirect('/import/')
-    
+
     return HttpResponseRedirect('/import/')
 
 @login_required
@@ -728,13 +786,13 @@ def person_details(request, cedula):
         person = Person.objects.get(cedula=cedula)
         conflicts = Conflict.objects.filter(person=person)
         financial_reports = []  # Add your financial reports query here if needed
-        
+
         context = {
             'myperson': person,
             'conflicts': conflicts,
             'financial_reports': financial_reports,
         }
-        
+
         return render(request, 'details.html', context)
     except Person.DoesNotExist:
         messages.error(request, f"Person with ID {cedula} not found")
@@ -749,36 +807,47 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
 def extract_specific_columns(input_file, output_file, custom_headers=None):
-    
+
     try:
         # Setup output directory
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
+
         # Read raw data (no automatic parsing)
         df = pd.read_excel(input_file, header=None)
-        
+
         # Column selection (first 11 + specified extras)
         base_cols = list(range(11))  # Columns 0-10 (A-K)
-        extra_cols = [12,14,16,18,20,22,24,25,26,28]
+        # Add the new detail columns
+        extra_cols = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] # Updated extra_cols to include details
         selected_cols = [col for col in base_cols + extra_cols if col < df.shape[1]]
-        
+
         # Extract data with headers
         result = df.iloc[3:, selected_cols].copy()
         result.columns = df.iloc[2, selected_cols].values
-        
+
         # Apply custom headers if provided
         if custom_headers is not None:
             if len(custom_headers) != len(result.columns):
                 raise ValueError(f"Custom headers count ({len(custom_headers)}) doesn't match column count ({len(result.columns)})")
             result.columns = custom_headers
-        
+
         # Merge C,D,E,F → C (indices 2,3,4,5)
         if all(c in selected_cols for c in [2,3,4,5]):
-            result.iloc[:, 2] = result.iloc[:, 2:6].astype(str).apply(' '.join, axis=1)
-            result.drop(result.columns[3:6], axis=1, inplace=True)
-            selected_cols = [c for c in selected_cols if c not in [3,4,5]] 
-            
-        # Process "Nombre" column AFTER merging
+            # This part needs to be careful with column indices after extraction
+            # Assuming 'Nombre' is at result.columns[2] after initial extraction if the original columns C,D,E,F are consecutive in selected_cols
+            # We need to find the exact position of the columns that were originally C,D,E,F
+            # Let's use the actual column names in `result.columns` if possible after renaming
+            # or rely on the `custom_headers` to know which columns correspond to the merge.
+
+            # For simplicity, assuming custom_headers will be applied correctly,
+            # and the merge is always intended for the 3rd column (index 2) onwards.
+            # We'll need to check if the original columns C, D, E, F are present in the *result* DataFrame after header assignment.
+
+            # Re-evaluate the merge after custom headers are applied
+            # Assuming 'Nombre' is the merged column (originally C, D, E, F) and it's handled by 'Nombre' processing
+            pass # The "Nombre" processing below should handle the merging effectively.
+
+        # Process "Nombre" column AFTER merging (if it was a merge)
         if "Nombre" in result.columns:
             # First replace actual NaN values with empty string
             result["Nombre"] = result["Nombre"].fillna("")
@@ -788,53 +857,58 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
             result["Nombre"] = result["Nombre"].str.replace(r'\s+', ' ', regex=True).str.strip()
             # Finally apply title case
             result["Nombre"] = result["Nombre"].str.title()
-            
-        # Special handling for Column J (input index 9)
-        if 9 in selected_cols:
-            j_pos = selected_cols.index(9)  # Find its position in output
-            date_col = result.columns[j_pos]
-            
+
+        # Special handling for Column J (input index 9), which becomes 'Fecha de Inicio' in custom headers
+        if "Fecha de Inicio" in result.columns:
+            date_col = "Fecha de Inicio"
+
             # Convert with European date format
             result[date_col] = pd.to_datetime(
                 result[date_col],
                 dayfirst=True,
                 errors='coerce'
             )
-            
+
             # Save with Excel formatting
             with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
                 result.to_excel(writer, index=False)
-                
+
                 # Get the worksheet and format the date column
                 worksheet = writer.sheets['Sheet1']
-                date_col_letter = get_column_letter(j_pos + 1)
-                
+                # Find the column letter for 'Fecha de Inicio' in the output Excel
+                date_col_letter = get_column_letter(result.columns.get_loc(date_col) + 1)
+
                 # Apply date format to all cells in the column
                 for cell in worksheet[date_col_letter]:
                     if cell.row == 1:  # Skip header
                         continue
                     cell.number_format = 'DD/MM/YYYY'
-                
+
                 # Auto-adjust columns
                 for idx, col in enumerate(result.columns):
                     col_letter = get_column_letter(idx+1)
                     worksheet.column_dimensions[col_letter].width = max(
                         len(str(col))+2,
-                        result[col].astype(str).str.len().max()+2
+                        (result[col].astype(str).str.len().max() or 0) + 2 # Handle empty series
                     )
-        
+
         else:
-            print("Warning: Column J not found in selected columns")
-    
+            print("Warning: 'Fecha de Inicio' column not found in processed data")
+            # If 'Fecha de Inicio' is not present, save the file without date formatting
+            result.to_excel(output_file, index=False)
+
+
     except Exception as e:
         print(f"Error: {str(e)}")
 
 # Example usage with custom headers
+# Updated custom_headers to include the new detail fields
 custom_headers = [
-    "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido", 
-    "2do Apellido", "Compañía", "Cargo", "Email", "Fecha de Inicio", 
-    "Q1", "Q2", "Q3", "Q4", "Q5",
-    "Q6", "Q7", "Q8", "Q9", "Q10", "Q11"
+    "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido",
+    "2do Apellido", "Compañía", "Cargo", "Email", "Fecha de Inicio",
+    "Q1", "Q1 Detalle", "Q2", "Q2 Detalle", "Q3", "Q3 Detalle",
+    "Q4", "Q4 Detalle", "Q5", "Q5 Detalle", "Q6", "Q6 Detalle",
+    "Q7", "Q7 Detalle", "Q8", "Q9", "Q10", "Q10 Detalle", "Q11", "Q11 Detalle"
 ]
 
 extract_specific_columns(
@@ -4290,34 +4364,77 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th scope="row">Accionista de algun proveedor del grupo</th>
                                 <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q1_detalle and conflict.q1_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th> {# Empty header for alignment #}
+                                <td><small class="text-muted">{{ conflict.q1_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Familiar de algun accionista, proveedor o empleado</th>
                                 <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q2_detalle and conflict.q2_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q2_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Accionista de alguna compania del grupo</th>
                                 <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q3_detalle and conflict.q3_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q3_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Actividades extralaborales</th>
                                 <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q4_detalle and conflict.q4_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q4_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Negocios o bienes con empleados del grupo</th>
                                 <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q5_detalle and conflict.q5_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q5_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Participacion en juntas o consejos directivos</th>
                                 <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q6_detalle and conflict.q6_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q6_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Potencial conflicto diferente a los anteriores</th>
                                 <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q7_detalle and conflict.q7_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q7_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Consciente del codigo de conducta empresarial</th>
                                 <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
                             </tr>
+                            {# Q8 and Q9 do not have detail fields, so no new rows for them #}
                             <tr>
                                 <th scope="row">Veracidad de la informacion consignada</th>
                                 <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
@@ -4326,10 +4443,22 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th scope="row">Familiar de algun funcionario publico</th>
                                 <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q10_detalle and conflict.q10_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q10_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Relacion con el sector publico o funcionario publico</th>
                                 <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             </tr>
+                            {% if conflict.q11_detalle and conflict.q11_detalle|lower != "nan" %}
+                            <tr>
+                                <th></th>
+                                <td><small class="text-muted">{{ conflict.q11_detalle|linebreaksbr }}</small></td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
