@@ -398,9 +398,89 @@ class ImportView(LoginRequiredMixin, TemplateView):
     template_name = 'import.html'
 
     def get_context_data(self, **kwargs):
+        """
+        Overrides the default get_context_data to add counts for persons and conflicts,
+        and to gather analysis results from the core/src directory.
+        """
         context = super().get_context_data(**kwargs)
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
+        # Initialize protected_count and tc_count for consistency, assuming they are tracked elsewhere
+        # If these counts are derived from the analysis files, they will be updated below.
+        context['protected_count'] = 0 # Placeholder, update if you track this in DB or from analysis
+        context['tc_count'] = 0 # Placeholder, update if you track this in DB or from analysis
+
+        analysis_results = []
+        core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+
+        # Helper function to get file status
+        def get_file_status(filename, directory=core_src_dir):
+            file_path = os.path.join(directory, filename)
+            status_info = {'filename': filename, 'records': '-', 'status': 'pending', 'last_updated': None, 'error': None}
+            if os.path.exists(file_path):
+                try:
+                    df = pd.read_excel(file_path)
+                    status_info['records'] = len(df)
+                    status_info['status'] = 'success'
+                    status_info['last_updated'] = datetime.fromtimestamp(os.path.getmtime(file_path))
+                except Exception as e:
+                    status_info['status'] = 'error'
+                    status_info['error'] = f"Error reading file: {str(e)}"
+            return status_info
+
+        # --- Status for Personas.xlsx ---
+        personas_status = get_file_status('Personas.xlsx')
+        analysis_results.append(personas_status)
+        if personas_status['status'] == 'success':
+            context['person_count'] = personas_status['records']
+
+        # --- Status for conflicts.xlsx ---
+        conflicts_status = get_file_status('conflicts.xlsx')
+        analysis_results.append(conflicts_status)
+        if conflicts_status['status'] == 'success':
+            context['conflict_count'] = conflicts_status['records']
+
+        # --- Status for Tarjetas de Credito ---
+        visa_dir = os.path.join(core_src_dir, 'visa')
+        latest_visa_file = None
+        latest_mtime = 0
+        if os.path.exists(visa_dir):
+            for f_name in os.listdir(visa_dir):
+                if f_name.startswith('VISA_') and f_name.endswith('.xlsx'):
+                    f_path = os.path.join(visa_dir, f_name)
+                    mtime = os.path.getmtime(f_path)
+                    if mtime > latest_mtime:
+                        latest_mtime = mtime
+                        latest_visa_file = f_path
+
+        visa_status = {'filename': 'Tarjetas de Credito', 'records': '-', 'status': 'pending', 'last_updated': None, 'error': None}
+        if latest_visa_file:
+            try:
+                df = pd.read_excel(latest_visa_file)
+                visa_status['records'] = len(df)
+                visa_status['status'] = 'success'
+                visa_status['last_updated'] = datetime.fromtimestamp(latest_mtime)
+                context['tc_count'] = len(df) # Update tc_count based on file
+            except Exception as e:
+                visa_status['status'] = 'error'
+                visa_status['error'] = f"Error reading file: {str(e)}"
+        analysis_results.append(visa_status)
+
+        # --- Status for Nets.py output files ---
+        analysis_results.append(get_file_status('bankNets.xlsx'))
+        analysis_results.append(get_file_status('debtNets.xlsx'))
+        analysis_results.append(get_file_status('goodNets.xlsx'))
+        analysis_results.append(get_file_status('incomeNets.xlsx'))
+        analysis_results.append(get_file_status('investNets.xlsx'))
+        analysis_results.append(get_file_status('assetNets.xlsx'))
+        analysis_results.append(get_file_status('worthNets.xlsx'))
+
+        # --- Status for Trends.py output files ---
+        analysis_results.append(get_file_status('trends.xlsx'))
+        analysis_results.append(get_file_status('idTrends.xlsx'))
+
+
+        context['analysis_results'] = analysis_results
         return context
 
 @login_required
@@ -430,13 +510,14 @@ def import_persons(request):
 
             # Define column mapping from Excel columns to model fields
             column_mapping = {
+                'id': 'id', # Assuming 'id' column might exist in the input, or we'll add it later
                 'nombre completo': 'nombre_completo',
-                'correo': 'correo',
+                'correo': 'original_correo', # Temporarily rename input 'correo' to avoid conflict
                 'cedula': 'cedula',
                 'estado': 'estado',
                 'compania': 'compania',
                 'cargo': 'cargo',
-                'activo': 'activo' # Assuming 'activo' might be an input column for 'estado'
+                'activo': 'activo', # Assuming 'activo' might be an input column for 'estado'
             }
 
             # Rename columns based on the mapping
@@ -462,18 +543,32 @@ def import_persons(request):
                 messages.error(request, "Error: 'Nombre Completo' column not found in the Excel file.")
                 return HttpResponseRedirect('/import/')
 
-            # Define the columns for the output Excel file and ensure they are present
-            output_columns_df = pd.DataFrame(columns=['NOMBRE COMPLETO', 'Cedula', 'Compania', 'CARGO'])
+            # and assign it to the 'correo' column in the DataFrame.
+            if 'original_correo' in df.columns:
+                # Keep '@' symbol, only remove periods and convert to lowercase
+                df['correo'] = df['original_correo'].str.lower().str.replace('.', '', regex=False)
+            else:
+                df['correo'] = '' # Initialize if no original email is present
+
+            # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo'
+            output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo']
+            output_columns_df = pd.DataFrame(columns=output_columns)
 
             # Populate the output DataFrame with data from the processed DataFrame
+            if 'id' in df.columns:
+                output_columns_df['Id'] = df['id']
             if 'nombre_completo' in df.columns:
                 output_columns_df['NOMBRE COMPLETO'] = df['nombre_completo']
             if 'cedula' in df.columns:
                 output_columns_df['Cedula'] = df['cedula']
+            if 'estado' in df.columns:
+                output_columns_df['Estado'] = df['estado']
             if 'compania' in df.columns:
                 output_columns_df['Compania'] = df['compania']
             if 'cargo' in df.columns:
                 output_columns_df['CARGO'] = df['cargo']
+            if 'correo' in df.columns: # Use the newly created 'correo' column (normalized)
+                output_columns_df['correo'] = df['correo']
 
             # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
@@ -487,7 +582,7 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''),
+                        'correo': row.get('correo', ''), # Save the normalized email to the 'correo' field
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
@@ -508,17 +603,18 @@ def import_conflicts(request):
     if request.method == 'POST' and request.FILES.get('conflict_excel_file'):
         excel_file = request.FILES['conflict_excel_file']
         try:
-            dest_path = "core/src/conflictos.xlsx"
+            dest_path = os.path.join(settings.BASE_DIR, "core", "src", "conflictos.xlsx") # Use os.path.join
             with open(dest_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            subprocess.run(['python', 'core/conflicts.py'], check=True)
+            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR) # Add cwd
 
+            # Re-import pandas and models within the function if they are not globally available or to ensure fresh import
             import pandas as pd
             from core.models import Person, Conflict
 
-            processed_file = "core/src/conflicts.xlsx"
+            processed_file = os.path.join(settings.BASE_DIR, "core", "src", "conflicts.xlsx") # Use os.path.join
             df = pd.read_excel(processed_file)
             df.columns = df.columns.str.lower().str.replace(' ', '_')
 
@@ -684,7 +780,7 @@ def import_tcs(request):
 
             # Save password if provided
             if password:
-                with open(os.path.join(visa_dir, 'password.txt'), 'w') as f:
+                with open(os.path.join(visa_dir, 'w_password.txt'), 'w') as f: # Changed filename to avoid conflict
                     f.write(password)
 
             # Save all PDF files
@@ -764,6 +860,9 @@ def import_finances(request):
                 # Run trends.py analysis
                 subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
 
+                # Run idTrends.py analysis
+                subprocess.run(['python', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
+
                 # Remove the data.xlsx file after processing
                 os.remove(decrypted_path)
 
@@ -833,18 +932,7 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
 
         # Merge C,D,E,F → C (indices 2,3,4,5)
         if all(c in selected_cols for c in [2,3,4,5]):
-            # This part needs to be careful with column indices after extraction
-            # Assuming 'Nombre' is at result.columns[2] after initial extraction if the original columns C,D,E,F are consecutive in selected_cols
-            # We need to find the exact position of the columns that were originally C,D,E,F
-            # Let's use the actual column names in `result.columns` if possible after renaming
-            # or rely on the `custom_headers` to know which columns correspond to the merge.
-
-            # For simplicity, assuming custom_headers will be applied correctly,
-            # and the merge is always intended for the 3rd column (index 2) onwards.
-            # We'll need to check if the original columns C, D, E, F are present in the *result* DataFrame after header assignment.
-
-            # Re-evaluate the merge after custom headers are applied
-            # Assuming 'Nombre' is the merged column (originally C, D, E, F) and it's handled by 'Nombre' processing
+            
             pass # The "Nombre" processing below should handle the merging effectively.
 
         # Process "Nombre" column AFTER merging (if it was a merge)
@@ -901,7 +989,6 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
     except Exception as e:
         print(f"Error: {str(e)}")
 
-# Example usage with custom headers
 # Updated custom_headers to include the new detail fields
 custom_headers = [
     "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido",
@@ -1845,12 +1932,12 @@ def save_results(df, excel_filename="core/src/trends.xlsx"):
             df_output['Usuario'] = df_output['Usuario'].astype(str)
         
         # Rename columns for output
-        df_output.columns = [col.replace('Usuario', 'Cedula').replace('Compañía', 'Compania') 
+        df_output.columns = [col.replace('Usuario', 'Id').replace('Compañía', 'Compania') 
                            for col in df_output.columns]
         
-        # Ensure Cedula is string after renaming
-        if 'Cedula' in df_output.columns:
-            df_output['Cedula'] = df_output['Cedula'].astype(str)
+        # Ensure Id is string after renaming
+        if 'Id' in df_output.columns:
+            df_output['Id'] = df_output['Id'].astype(str)
         
         df_output.to_excel(excel_filename, index=False)
         print(f"Data saved to {excel_filename}")
@@ -1951,15 +2038,12 @@ def clean_and_convert(value, keep_trend=False):
             return None
 
 # Read the Excel file
-file_path = 'core/src/trends.xlsx'
-df = pd.read_excel(file_path)
-
-# Convert 'Cedula' column to string
-df['Cedula'] = df['Cedula'].astype(str)
+file_path_trends = 'core/src/trends.xlsx'
+df_trends = pd.read_excel(file_path_trends)
 
 # Ensure all specified columns exist (create empty ones if they don't)
 required_columns = [
-    'Cedula', 'Nombre', 'Compania', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 
+    'Id', 'Nombre', 'Compania', 'Cargo', 'fkIdPeriodo', 'Año Declaración', 
     'Año Creación', 'Activos', 'Cant_Bienes', 'Cant_Bancos', 'Cant_Cuentas', 
     'Cant_Inversiones', 'Pasivos', 'Cant_Deudas', 'Patrimonio', 'Apalancamiento', 
     'Endeudamiento', 'Capital', 'Aum. Pat. Subito', 'Activos Var. Abs.', 
@@ -1974,8 +2058,8 @@ required_columns = [
 
 # Add any missing columns with NaN values
 for col in required_columns:
-    if col not in df.columns:
-        df[col] = None
+    if col not in df_trends.columns:
+        df_trends[col] = None
 
 # List of columns to convert to float (absolute variation columns)
 float_columns = [
@@ -2007,57 +2091,39 @@ trend_columns = [
 
 # Convert absolute variation columns to float
 for col in float_columns:
-    if col in df.columns:
-        df[col] = df[col].apply(lambda x: clean_and_convert(x, keep_trend=False))
+    if col in df_trends.columns:
+        df_trends[col] = df_trends[col].apply(lambda x: clean_and_convert(x, keep_trend=False))
 
 # Process trend columns (handle infinity and preserve trend symbols)
 for col in trend_columns:
-    if col in df.columns:
-        df[col] = df[col].apply(lambda x: clean_and_convert(x, keep_trend=True) 
+    if col in df_trends.columns:
+        df_trends[col] = df_trends[col].apply(lambda x: clean_and_convert(x, keep_trend=True) 
                           if not pd.isna(x) and str(x).lower() not in ['inf', '-inf', 'inf%'] 
                           else np.nan)
 
 # Special handling for 'Aum. Pat. Subito' column
-if 'Aum. Pat. Subito' in df.columns:
-    df['Aum. Pat. Subito'] = df['Aum. Pat. Subito'].apply(
+if 'Aum. Pat. Subito' in df_trends.columns:
+    df_trends['Aum. Pat. Subito'] = df_trends['Aum. Pat. Subito'].apply(
         lambda x: np.nan if pd.isna(x) or "N/A ➡️" in str(x) else x
     )
 
 # Reorder columns to match the specified order
-df = df[required_columns]
+df_trends = df_trends[required_columns]
 
-# Read Personas.xlsx and merge with the current dataframe
-personas_path = 'core/src/Personas.xlsx'
+# Read the Personas.xlsx file
+file_path_personas = 'core/src/Personas.xlsx'
 try:
-    personas_df = pd.read_excel(personas_path)
-    
-    # Convert 'Cedula' to string in both dataframes to ensure matching
-    personas_df['Cedula'] = personas_df['Cedula'].astype(str)
-    df['Cedula'] = df['Cedula'].astype(str)
-    
-    # Rename columns in personas_df to match df column names
-    personas_df = personas_df.rename(columns={
-        'NOMBRE COMPLETO': 'Nombre',
-        'CARGO': 'Cargo'
-    })
-    
-    # Select only the columns we want to merge
-    personas_merge = personas_df[['Cedula', 'Nombre', 'Compania', 'Cargo', 'Estado', 'Correo']]
-    
-    # Merge with the main dataframe on Cedula, keeping all records from df
-    df = pd.merge(df, personas_merge, on='Cedula', how='left', suffixes=('', '_personas'))
-    
-    # For the merged columns, prioritize values from personas_df
-    for col in ['Nombre', 'Compania', 'Cargo']:
-        df[col] = df[f'{col}_personas'].fillna(df[col])
-        df = df.drop(f'{col}_personas', axis=1)
-        
-except Exception as e:
-    print(f"Error merging Personas.xlsx: {e}")
+    df_personas = pd.read_excel(file_path_personas)
+except FileNotFoundError:
+    print(f"Error: {file_path_personas} not found. Please ensure the file exists.")
+    exit()
 
-# Save the modified dataframe back to Excel
+# You can change 'how' to 'inner', 'right', or 'outer' depending on your desired merge behavior
+df_merged = pd.merge(df_trends, df_personas, on='Id', how='left')
+
+# Save the modified and merged dataframe back to Excel
 output_path = 'core/src/idTrends.xlsx'
-df.to_excel(output_path, index=False)
+df_merged.to_excel(output_path, index=False)
 
 print(f"File has been modified and saved as {output_path}")
 "@
@@ -4284,7 +4350,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
-    <i class="fas fa-wrench"></i>
+    <i class="fas fa-pencil-alt"></i>
 </a>
 <a href="/" class="btn btn-custom-primary"><i class="fas fa-arrow-right"></i></a>
 {% endblock %}
