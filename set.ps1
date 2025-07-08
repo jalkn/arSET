@@ -92,6 +92,59 @@ class Conflict(models.Model):
 
     def __str__(self):
         return f"Conflictos para {self.person.nombre_completo} (ID: {self.id})"
+
+class FinancialReport(models.Model):
+    id = models.AutoField(primary_key=True)
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.CASCADE,
+        related_name='financial_reports',
+        to_field='cedula',
+        db_column='cedula'
+    )
+    fk_id_periodo = models.IntegerField(null=True, blank=True)
+    ano_declaracion = models.IntegerField(null=True, blank=True)
+    ano_creacion = models.IntegerField(null=True, blank=True)
+    activos = models.FloatField(null=True, blank=True)
+    cant_bienes = models.IntegerField(null=True, blank=True)
+    cant_bancos = models.IntegerField(null=True, blank=True)
+    cant_cuentas = models.IntegerField(null=True, blank=True)
+    cant_inversiones = models.IntegerField(null=True, blank=True)
+    pasivos = models.FloatField(null=True, blank=True)
+    cant_deudas = models.IntegerField(null=True, blank=True)
+    patrimonio = models.FloatField(null=True, blank=True)
+    apalancamiento = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    endeudamiento = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    capital = models.FloatField(null=True, blank=True)
+    aum_pat_subito = models.FloatField(null=True, blank=True)
+    activos_var_abs = models.FloatField(null=True, blank=True)
+    activos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    pasivos_var_abs = models.FloatField(null=True, blank=True)
+    pasivos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    patrimonio_var_abs = models.FloatField(null=True, blank=True)
+    patrimonio_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    apalancamiento_var_abs = models.FloatField(null=True, blank=True)
+    apalancamiento_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    endeudamiento_var_abs = models.FloatField(null=True, blank=True)
+    endeudamiento_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    banco_saldo = models.FloatField(null=True, blank=True)
+    bienes = models.FloatField(null=True, blank=True)
+    inversiones = models.FloatField(null=True, blank=True)
+    banco_saldo_var_abs = models.FloatField(null=True, blank=True)
+    banco_saldo_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    bienes_var_abs = models.FloatField(null=True, blank=True)
+    bienes_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    inversiones_var_abs = models.FloatField(null=True, blank=True)
+    inversiones_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    ingresos = models.FloatField(null=True, blank=True)
+    cant_ingresos = models.IntegerField(null=True, blank=True)
+    ingresos_var_abs = models.FloatField(null=True, blank=True)
+    ingresos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Reporte Financiero para {self.person.nombre_completo} (Periodo: {self.fk_id_periodo})"
 "@
 
 # Create admin.py with enhanced configuration
@@ -100,7 +153,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.urls import reverse
-from core.models import Person, Conflict
+from core.models import Person, Conflict, FinancialReport # Import FinancialReport
 
 class ConflictForm(forms.ModelForm):
     class Meta:
@@ -127,14 +180,14 @@ class PersonAdmin(admin.ModelAdmin):
     list_editable = ('revisar',)
 
     # Custom fields to show in detail view
-    readonly_fields = ('cedula_with_actions', 'conflicts_link')
+    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link') # Add financial_reports_link
 
     fieldsets = (
         (None, {
             'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
         }),
         ('Related Records', {
-            'fields': ('conflicts_link',),
+            'fields': ('conflicts_link', 'financial_reports_link'), # Add financial_reports_link
             'classes': ('collapse',)
         }),
     )
@@ -186,6 +239,35 @@ class PersonAdmin(admin.ModelAdmin):
         return "-"
     conflicts_link.short_description = 'Conflict Records'
     conflicts_link.allow_tags = True
+
+    def financial_reports_link(self, obj):
+        if obj.pk:
+            report = obj.financial_reports.first()
+            if report:
+                change_url = reverse('admin:core_financialreport_change', args=[report.pk])
+                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
+                list_url = reverse('admin:core_financialreport_changelist') + f'?q={obj.cedula}'
+
+                return format_html(
+                    '<div class="nowrap">'
+                    '<a href="{}" class="changelink">View/Edit Financial Reports</a> &nbsp;'
+                    '<a href="{}" class="addlink">Add New Financial Report</a> &nbsp;'
+                    '<a href="{}" class="viewlink">All Financial Reports</a>'
+                    '</div>',
+                    change_url,
+                    add_url,
+                    list_url
+                )
+            else:
+                add_url = reverse('admin:core_financialreport_add') + f'?person={obj.pk}'
+                return format_html(
+                    '<a href="{}" class="addlink">Create Financial Report Record</a>',
+                    add_url
+                )
+        return "-"
+    financial_reports_link.short_description = 'Financial Reports'
+    financial_reports_link.allow_tags = True
+
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:  # Add view
@@ -283,6 +365,47 @@ class ConflictAdmin(admin.ModelAdmin):
     get_q10_display.short_description = 'Familiar de funcionario'
     def get_q11_display(self, obj): return "YES" if obj.q11 else "NO"
     get_q11_display.short_description = 'Relacion con sector publico'
+
+@admin.register(FinancialReport) # Register the new model
+class FinancialReportAdmin(admin.ModelAdmin):
+    list_display = (
+        'person', 'fk_id_periodo', 'ano_declaracion', 'activos', 'pasivos',
+        'patrimonio', 'ingresos', 'apalancamiento', 'endeudamiento',
+        'activos_var_rel', 'pasivos_var_rel', 'patrimonio_var_rel',
+        'ingresos_var_rel'
+    )
+    search_fields = (
+        'person__nombre_completo', 'person__cedula', 'fk_id_periodo',
+        'ano_declaracion'
+    )
+    list_filter = ('ano_declaracion', 'fk_id_periodo')
+    raw_id_fields = ('person',)
+
+    fieldsets = (
+        (None, {
+            'fields': ('person', 'fk_id_periodo', 'ano_declaracion', 'ano_creacion')
+        }),
+        ('Financial Data', {
+            'fields': (
+                'activos', 'cant_bienes', 'cant_bancos', 'cant_cuentas', 'cant_inversiones',
+                'pasivos', 'cant_deudas', 'patrimonio', 'capital', 'aum_pat_subito',
+                'banco_saldo', 'bienes', 'inversiones', 'ingresos', 'cant_ingresos'
+            )
+        }),
+        ('Trends and Variations', {
+            'fields': (
+                ('apalancamiento', 'apalancamiento_var_abs', 'apalancamiento_var_rel'),
+                ('endeudamiento', 'endeudamiento_var_abs', 'endeudamiento_var_rel'),
+                ('activos_var_abs', 'activos_var_rel'),
+                ('pasivos_var_abs', 'pasivos_var_rel'),
+                ('patrimonio_var_abs', 'patrimonio_var_rel'),
+                ('banco_saldo_var_abs', 'banco_saldo_var_rel'),
+                ('bienes_var_abs', 'bienes_var_rel'),
+                ('inversiones_var_abs', 'inversiones_var_rel'),
+                ('ingresos_var_abs', 'ingresos_var_rel'),
+            )
+        }),
+    )
 "@
 
 # Create urls.py for core app
@@ -295,8 +418,9 @@ from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
-from .views import (main, register_superuser, ImportView, person_list, 
-                   import_conflicts, conflict_list, import_persons, import_tcs, import_finances, person_details)
+from .views import (main, register_superuser, ImportView, person_list,
+                   import_conflicts, conflict_list, import_persons, import_tcs,
+                   import_finances, person_details, financial_report_list) 
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -304,16 +428,16 @@ def register_superuser(request):
         email = request.POST.get('email')
         password1 = request.POST.get('password1')
         password2 = request.POST.get('password2')
-        
+
         if password1 != password2:
             messages.error(request, "Passwords don't match")
             return redirect('register')
-        
+
         User = get_user_model()
         if User.objects.filter(username=username).exists():
             messages.error(request, "Username already exists")
             return redirect('register')
-        
+
         try:
             user = User.objects.create_superuser(
                 username=username,
@@ -325,7 +449,7 @@ def register_superuser(request):
         except Exception as e:
             messages.error(request, f"Error creating superuser: {str(e)}")
             return redirect('register')
-    
+
     return render(request, 'registration/register.html')
 
 urlpatterns = [
@@ -337,6 +461,7 @@ urlpatterns = [
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
+    path('financial-reports/', views.financial_report_list, name='financial_report_list'), 
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-protected-excel/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
@@ -358,11 +483,40 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person, Conflict
+from core.models import Person, Conflict, FinancialReport # Import FinancialReport
 from django.db.models import Q
 import subprocess
 import msoffcrypto
 import io
+import re # Import regex module
+
+# Helper function to clean and convert numeric values from strings
+def _clean_numeric_value(value):
+    """
+    Cleans a string value by removing non-numeric characters (except decimal and minus)
+    and attempts to convert it to a float. Handles percentage signs.
+    Returns None if conversion fails or value is NaN/empty.
+    """
+    if pd.isna(value):
+        return None
+    
+    str_value = str(value).strip()
+    if not str_value:
+        return None
+
+    # Remove trend symbols and any non-numeric characters except '.', '-' and '%'
+    # Keep '%' for later handling
+    numeric_part = re.sub(r'[^\d.%\-]', '', str_value)
+
+    try:
+        if '%' in numeric_part:
+            # If it's a percentage, convert to float and divide by 100
+            return float(numeric_part.replace('%', '')) / 100
+        else:
+            # Otherwise, just convert to float
+            return float(numeric_part)
+    except ValueError:
+        return None # Return None if conversion fails
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -405,6 +559,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
+        context['financial_report_count'] = FinancialReport.objects.count() # Add financial report count
         # Initialize protected_count and tc_count for consistency, assuming they are tracked elsewhere
         # If these counts are derived from the analysis files, they will be updated below.
         context['protected_count'] = 0 # Placeholder, update if you track this in DB or from analysis
@@ -477,7 +632,12 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
         # --- Status for Trends.py output files ---
         analysis_results.append(get_file_status('trends.xlsx'))
-        analysis_results.append(get_file_status('idTrends.xlsx'))
+        
+        # --- Status for idTrends.xlsx ---
+        idtrends_status = get_file_status('idTrends.xlsx')
+        analysis_results.append(idtrends_status)
+        if idtrends_status['status'] == 'success':
+            context['financial_report_count'] = idtrends_status['records'] # Update financial report count
 
 
         context['analysis_results'] = analysis_results
@@ -534,13 +694,6 @@ def import_persons(request):
                 df['cedula'] = df['cedula'].astype(str)
             else:
                 messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
-                return HttpResponseRedirect('/import/')
-
-            # Convert 'nombre_completo' to title case if the column exists
-            if 'nombre_completo' in df.columns:
-                df['nombre_completo'] = df['nombre_completo'].str.title()
-            else:
-                messages.error(request, "Error: 'Nombre Completo' column not found in the Excel file.")
                 return HttpResponseRedirect('/import/')
 
             # and assign it to the 'correo' column in the DataFrame.
@@ -671,6 +824,101 @@ def import_conflicts(request):
     return HttpResponseRedirect('/import/')
 
 @login_required
+def import_financial_reports(request):
+    """View for importing financial reports data from idTrends.xlsx"""
+    # This function is called internally after idTrends.py generates the file
+    # It does not expect a file upload directly from the user.
+    try:
+        file_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'idTrends.xlsx')
+        if not os.path.exists(file_path):
+            messages.error(request, "Error: idTrends.xlsx not found. Please ensure analysis scripts run first.")
+            return
+
+        df = pd.read_excel(file_path)
+        # Ensure column names are consistently lowercased and spaces/dots are replaced
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '', regex=False).str.replace('á', 'a').str.replace('é', 'e').str.replace('í', 'i').str.replace('ó', 'o').str.replace('ú', 'u')
+
+        # No need for column_mapping dictionary if direct access is used after cleaning column names
+        for _, row in df.iterrows():
+            try:
+                cedula = str(row.get('cedula'))
+                if not cedula:
+                    messages.warning(request, f"Skipping row due to missing cedula: {row.to_dict()}")
+                    continue # Skip rows without a cedula
+
+                person, created = Person.objects.get_or_create(
+                    cedula=cedula,
+                    defaults={
+                        'nombre_completo': row.get('nombre_completo', ''),
+                        'correo': row.get('correo', ''),
+                        'compania': row.get('compania_y', ''), # Use compania_y from idTrends.py output
+                        'cargo': row.get('cargo', '')
+                    }
+                )
+
+                # Prepare data for FinancialReport, handling potential NaN values and cleaning numeric fields
+                report_data = {
+                    'person': person,
+                    'fk_id_periodo': _clean_numeric_value(row.get('fkidperiodo')), # Corrected column name access
+                    'ano_declaracion': _clean_numeric_value(row.get('año_declaracion')),
+                    'ano_creacion': _clean_numeric_value(row.get('año_creacion')),
+                    'activos': _clean_numeric_value(row.get('activos')),
+                    'cant_bienes': _clean_numeric_value(row.get('cant_bienes')),
+                    'cant_bancos': _clean_numeric_value(row.get('cant_bancos')),
+                    'cant_cuentas': _clean_numeric_value(row.get('cant_cuentas')),
+                    'cant_inversiones': _clean_numeric_value(row.get('cant_inversiones')),
+                    'pasivos': _clean_numeric_value(row.get('pasivos')),
+                    'cant_deudas': _clean_numeric_value(row.get('cant_deudas')),
+                    'patrimonio': _clean_numeric_value(row.get('patrimonio')),
+                    'apalancamiento': str(row.get('apalancamiento')) if pd.notna(row.get('apalancamiento')) else '',
+                    'endeudamiento': str(row.get('endeudamiento')) if pd.notna(row.get('endeudamiento')) else '',
+                    'capital': _clean_numeric_value(row.get('capital')),
+                    'aum_pat_subito': _clean_numeric_value(row.get('aum_pat_subito')), # Apply cleaning here
+                    'activos_var_abs': _clean_numeric_value(row.get('activos_var_abs')),
+                    'activos_var_rel': str(row.get('activos_var_rel')) if pd.notna(row.get('activos_var_rel')) else '',
+                    'pasivos_var_abs': _clean_numeric_value(row.get('pasivos_var_abs')),
+                    'pasivos_var_rel': str(row.get('pasivos_var_rel')) if pd.notna(row.get('pasivos_var_rel')) else '',
+                    'patrimonio_var_abs': _clean_numeric_value(row.get('patrimonio_var_abs')),
+                    'patrimonio_var_rel': str(row.get('patrimonio_var_rel')) if pd.notna(row.get('patrimonio_var_rel')) else '',
+                    'apalancamiento_var_abs': _clean_numeric_value(row.get('apalancamiento_var_abs')),
+                    'apalancamiento_var_rel': str(row.get('apalancamiento_var_rel')) if pd.notna(row.get('apalancamiento_var_rel')) else '',
+                    'endeudamiento_var_abs': _clean_numeric_value(row.get('endeudamiento_var_abs')),
+                    'endeudamiento_var_rel': str(row.get('endeudamiento_var_rel')) if pd.notna(row.get('endeudamiento_var_rel')) else '',
+                    'banco_saldo': _clean_numeric_value(row.get('banco_saldo')),
+                    'bienes': _clean_numeric_value(row.get('bienes')),
+                    'inversiones': _clean_numeric_value(row.get('inversiones')),
+                    'banco_saldo_var_abs': _clean_numeric_value(row.get('banco_saldo_var_abs')),
+                    'banco_saldo_var_rel': str(row.get('banco_saldo_var_rel')) if pd.notna(row.get('banco_saldo_var_rel')) else '',
+                    'bienes_var_abs': _clean_numeric_value(row.get('bienes_var_abs')),
+                    'bienes_var_rel': str(row.get('bienes_var_rel')) if pd.notna(row.get('bienes_var_rel')) else '',
+                    'inversiones_var_abs': _clean_numeric_value(row.get('inversiones_var_abs')),
+                    'inversiones_var_rel': str(row.get('inversiones_var_rel')) if pd.notna(row.get('inversiones_var_rel')) else '',
+                    'ingresos': _clean_numeric_value(row.get('ingresos')),
+                    'cant_ingresos': _clean_numeric_value(row.get('cant_ingresos')),
+                    'ingresos_var_abs': _clean_numeric_value(row.get('ingresos_var_abs')),
+                    'ingresos_var_rel': str(row.get('ingresos_var_rel')) if pd.notna(row.get('ingresos_var_rel')) else '',
+                }
+
+                # Use update_or_create based on person and fk_id_periodo to ensure uniqueness per period
+                # Ensure fk_id_periodo is not None for update_or_create to work correctly
+                if report_data['fk_id_periodo'] is not None:
+                    FinancialReport.objects.update_or_create(
+                        person=person,
+                        fk_id_periodo=report_data['fk_id_periodo'],
+                        defaults=report_data
+                    )
+                else:
+                    messages.warning(request, f"Skipping financial report for {cedula} due to missing fk_id_periodo.")
+
+            except Exception as e:
+                messages.error(request, f"Error processing financial report row {row.get('cedula')}: {str(e)}")
+                continue
+
+        messages.success(request, f'Reportes financieros importados exitosamente! {len(df)} registros procesados.')
+    except Exception as e:
+        messages.error(request, f'Error procesando archivo idTrends.xlsx: {str(e)}')
+
+@login_required
 def person_list(request):
     search_query = request.GET.get('q', '')
     status_filter = request.GET.get('status', '')
@@ -765,6 +1013,53 @@ def conflict_list(request):
     }
 
     return render(request, 'conflicts.html', context)
+
+@login_required
+def financial_report_list(request):
+    search_query = request.GET.get('q', '')
+    compania_filter = request.GET.get('compania', '')
+    ano_declaracion_filter = request.GET.get('ano_declaracion', '')
+
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+
+    financial_reports = FinancialReport.objects.select_related('person').all()
+
+    if search_query:
+        financial_reports = financial_reports.filter(
+            Q(person__nombre_completo__icontains=search_query) |
+            Q(person__cedula__icontains=search_query)
+        )
+
+    if compania_filter:
+        financial_reports = financial_reports.filter(person__compania=compania_filter)
+
+    if ano_declaracion_filter:
+        financial_reports = financial_reports.filter(ano_declaracion=ano_declaracion_filter)
+
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    financial_reports = financial_reports.order_by(order_by)
+
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    anos_declaracion = FinancialReport.objects.exclude(ano_declaracion__isnull=True).values_list('ano_declaracion', flat=True).distinct().order_by('ano_declaracion')
+
+    paginator = Paginator(financial_reports, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'financial_reports': page_obj,
+        'page_obj': page_obj,
+        'companias': companias,
+        'anos_declaracion': anos_declaracion,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+
+    return render(request, 'finances.html', context)
+
 
 @login_required
 def import_tcs(request):
@@ -863,6 +1158,9 @@ def import_finances(request):
                 # Run idTrends.py analysis
                 subprocess.run(['python', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
 
+                # After idTrends.py generates idTrends.xlsx, import the data into the FinancialReport model
+                import_financial_reports(request) # Call the new import function
+
                 # Remove the data.xlsx file after processing
                 os.remove(decrypted_path)
 
@@ -884,12 +1182,12 @@ def person_details(request, cedula):
     try:
         person = Person.objects.get(cedula=cedula)
         conflicts = Conflict.objects.filter(person=person)
-        financial_reports = []  # Add your financial reports query here if needed
+        financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') # Fetch financial reports
 
         context = {
             'myperson': person,
             'conflicts': conflicts,
-            'financial_reports': financial_reports,
+            'financial_reports': financial_reports, # Pass financial reports to context
         }
 
         return render(request, 'details.html', context)
@@ -2121,6 +2419,32 @@ except FileNotFoundError:
 # You can change 'how' to 'inner', 'right', or 'outer' depending on your desired merge behavior
 df_merged = pd.merge(df_trends, df_personas, on='Id', how='left')
 
+# Fill null values in 'Cant_Ingresos' with 0
+if 'Cant_Ingresos' in df_merged.columns:
+    df_merged['Cant_Ingresos'] = df_merged['Cant_Ingresos'].fillna(0)
+
+# Fill null values in 'Ingresos' with 0
+if 'Ingresos' in df_merged.columns:
+    df_merged['Ingresos'] = df_merged['Ingresos'].fillna(0)
+
+# Define columns to remove from the output
+columns_to_remove = ["Id", "Nombre", "Cargo", "Compania_x", "correo"]
+
+# Drop the specified columns
+df_merged = df_merged.drop(columns=columns_to_remove, errors='ignore') # 'errors=ignore' prevents an error if a column isn't found
+
+# Define the desired order of columns
+desired_start_columns = ["Cedula", "NOMBRE COMPLETO", "Estado", "Compania_y", "CARGO"]
+
+# Then, get all other columns that are not in the desired_start_columns
+remaining_columns = [col for col in df_merged.columns if col not in desired_start_columns]
+
+# Concatenate the two lists to form the final column order
+final_column_order = desired_start_columns + remaining_columns
+
+# Reindex the DataFrame with the new column order
+df_merged = df_merged[final_column_order]
+
 # Save the modified and merged dataframe back to Excel
 output_path = 'core/src/idTrends.xlsx'
 df_merged.to_excel(output_path, index=False)
@@ -3233,7 +3557,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
-    <a href="" class="btn btn-custom-primary" title="BienesyRentas">
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="" class="btn btn-custom-primary" title="Tarjetas">
