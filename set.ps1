@@ -3460,7 +3460,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i>
+        <i class="fas fa-database"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -3928,8 +3928,8 @@ document.addEventListener('DOMContentLoaded', function() {
 {% extends "master.html" %}
 {% load static %}
 
-{% block title %}A R P A{% endblock %}
-{% block navbar_title %}A R P A{% endblock %}
+{% block title %}Personas{% endblock %}
+{% block navbar_title %}Personas{% endblock %}
 
 {% block navbar_buttons %}
 <div>
@@ -3955,7 +3955,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i> 
+        <i class="fas fa-database"></i> 
     </a>
     <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
         <i class="fas fa-file-excel" style="color: green;"></i>
@@ -3986,7 +3986,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
-                       placeholder="Buscar persona..." 
+                       placeholder="Buscar persona o cedula" 
                        value="{{ request.GET.q }}">
             </div>
             
@@ -4042,7 +4042,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                ID
+                                Cedula
                             </a>
                         </th>
                         <th>
@@ -4167,8 +4167,8 @@ document.addEventListener('DOMContentLoaded', function() {
 @" 
 {% extends "master.html" %}
 
-{% block title %}Conflictos de Interes{% endblock %}
-{% block navbar_title %}Conflictos de Interes{% endblock %}
+{% block title %}Conflictos{% endblock %}
+{% block navbar_title %}Conflictos{% endblock %}
 
 {% block navbar_buttons %}
 <div>
@@ -4188,7 +4188,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
-        <i class="fas fa-upload"></i>
+        <i class="fas fa-database"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -4226,7 +4226,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <input type="text"
                        name="q"
                        class="form-control form-control-lg"
-                       placeholder="Buscar..."
+                       placeholder="Buscar Persona..."
+                       {% if request.GET.q %}autofocus{% endif %}
                        value="{{ request.GET.q }}">
             </div>
 
@@ -4449,8 +4450,8 @@ document.addEventListener('DOMContentLoaded', function() {
 {% extends "master.html" %}
 {% load static %}
 
-{% block title %}A R P A - Transacciones de Tarjetas de Crédito{% endblock %}
-{% block navbar_title %}A R P A{% endblock %}
+{% block title %}Tarjetas{% endblock %}
+{% block navbar_title %}Tarjetas{% endblock %}
 
 {% block navbar_buttons %}
 <div>
@@ -4460,8 +4461,8 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
-        <i class="far fa-credit-card" style="color: blue;"></i>
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+        <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
@@ -4476,7 +4477,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i> 
+        <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -4635,7 +4636,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 Pagina
                             </a>
                         </th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver Persona</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -4730,8 +4731,8 @@ document.addEventListener('DOMContentLoaded', function() {
 {% extends "master.html" %}
 {% load static %}
 
-{% block title %}A R P A - Reportes Financieros{% endblock %}
-{% block navbar_title %}A R P A{% endblock %}
+{% block title %}Bienes y Rentas{% endblock %}
+{% block navbar_title %}Bienes y Rentas{% endblock %}
 
 {% block navbar_buttons %}
 <div>
@@ -4757,7 +4758,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i> 
+        <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -4895,7 +4896,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 Var. Ingresos (%)
                             </a>
                         </th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver Persona</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -5020,7 +5021,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i> 
+        <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
