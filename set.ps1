@@ -14,7 +14,7 @@ function arpa {
 
     # Install required Python packages
     python.exe -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
@@ -505,7 +505,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons, import_tcs,
                    import_finances, person_details, financial_report_list,
-                   conflicts_missing_details_list, tcs_list) # Import the new view tcs_list
+                   conflicts_missing_details_list, tcs_list, export_persons_excel) # Import the new view export_persons_excel
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -545,12 +545,13 @@ urlpatterns = [
     path('import-persons/', views.import_persons, name='import_persons'),
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
     path('persons/', views.person_list, name='person_list'),
+    path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), # New URL pattern for Excel export
     path('conflicts/', views.conflict_list, name='conflict_list'),
     path('conflicts/missing-details/', views.conflicts_missing_details_list, name='conflicts_missing_details_list'), # New URL pattern
     path('financial-reports/', views.financial_report_list, name='financial_report_list'),
     path('tcs-transactions/', views.tcs_list, name='tcs_list'), # New URL pattern for TCS transactions
     path('import-tcs/', views.import_tcs, name='import_tcs'),
-    path('import-protected-excel/', views.import_finances, name='import_finances'),
+    path('import-finances/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
 ]
 "@
@@ -562,7 +563,7 @@ import pandas as pd
 from datetime import datetime
 import os
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, HttpResponse
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -1059,6 +1060,67 @@ def person_list(request):
     }
 
     return render(request, 'persons.html', context)
+
+@login_required
+def export_persons_excel(request):
+    search_query = request.GET.get('q', '')
+    status_filter = request.GET.get('status', '')
+    cargo_filter = request.GET.get('cargo', '')
+    compania_filter = request.GET.get('compania', '')
+
+    order_by = request.GET.get('order_by', 'nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+
+    persons = Person.objects.all()
+
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+
+    if status_filter:
+        persons = persons.filter(estado=status_filter)
+
+    if cargo_filter:
+        persons = persons.filter(cargo=cargo_filter)
+
+    if compania_filter:
+        persons = persons.filter(compania=compania_filter)
+
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+
+    # Prepare data for DataFrame
+    data = []
+    for person in persons:
+        data.append({
+            'ID': person.cedula,
+            'Nombre Completo': person.nombre_completo,
+            'Correo': person.correo,
+            'Estado': person.estado,
+            'Compañía': person.compania,
+            'Cargo': person.cargo,
+            'Revisar': 'Sí' if person.revisar else 'No',
+            'Comentarios': person.comments,
+            'Creado En': person.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'Actualizado En': person.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+        })
+
+    df = pd.DataFrame(data)
+
+    # Create an in-memory Excel file
+    excel_file = io.BytesIO()
+    with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Persons', index=False)
+    excel_file.seek(0)
+
+    # Create the HTTP response
+    response = HttpResponse(excel_file.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="persons_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    return response
+
 
 @login_required
 def conflict_list(request):
@@ -3605,6 +3667,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
@@ -3891,6 +3956,9 @@ document.addEventListener('DOMContentLoaded', function() {
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
         <i class="fas fa-upload"></i> 
+    </a>
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+        <i class="fas fa-file-excel" style="color: green;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -4519,12 +4587,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_transaccion&sort_direction={% if current_order == 'fecha_transaccion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Fecha Transacción
+                                Fecha Transaccion
                             </a>
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=descripcion&sort_direction={% if current_order == 'descripcion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Descripción
+                                Descripcion
                             </a>
                         </th>
                         <th>
@@ -4559,12 +4627,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=numero_autorizacion&sort_direction={% if current_order == 'numero_autorizacion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                No. Autorización
+                                No. Autorizacion
                             </a>
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pagina&sort_direction={% if current_order == 'pagina' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Página
+                                Pagina
                             </a>
                         </th>
                         <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver Persona</th>
@@ -4926,10 +4994,41 @@ document.addEventListener('DOMContentLoaded', function() {
 {% block navbar_title %}{{ myperson.nombre_completo }}{% endblock %}
 
 {% block navbar_buttons %}
-<a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
-    <i class="fas fa-pencil-alt"></i>
-</a>
-<a href="/" class="btn btn-custom-primary"><i class="fas fa-arrow-right"></i></a>
+<div>
+    <a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
+        <i class="fas fa-pencil-alt"></i>
+    </a>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+        <i class="fas fa-users"></i>
+    </a>
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% endif %}
+        {% if alerts_count == 0 %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-upload"></i> 
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
 {% endblock %}
 
 {% block content %}
