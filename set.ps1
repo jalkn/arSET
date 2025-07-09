@@ -145,6 +145,41 @@ class FinancialReport(models.Model):
 
     def __str__(self):
         return f"Reporte Financiero para {self.person.nombre_completo} (Periodo: {self.fk_id_periodo})"
+
+class TCS(models.Model):
+    id = models.AutoField(primary_key=True)
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.CASCADE,
+        related_name='tcs_transactions',
+        to_field='cedula',
+        db_column='cedula'
+    )
+    archivo = models.CharField(max_length=255, null=True, blank=True)
+    tarjetahabiente = models.CharField(max_length=255, null=True, blank=True)
+    numero_tarjeta = models.CharField(max_length=20, null=True, blank=True)
+    numero_autorizacion = models.CharField(max_length=50, null=True, blank=True)
+    fecha_transaccion = models.DateField(null=True, blank=True)
+    descripcion = models.TextField(null=True, blank=True)
+    valor_original = models.FloatField(null=True, blank=True)
+    tasa_pactada = models.CharField(max_length=50, null=True, blank=True) # Stored as string due to format
+    tasa_ea_facturada = models.CharField(max_length=50, null=True, blank=True) # Stored as string due to format
+    cargos_abonos = models.FloatField(null=True, blank=True)
+    saldo_a_diferir = models.FloatField(null=True, blank=True)
+    cuotas = models.CharField(max_length=20, null=True, blank=True) # Stored as string due to format
+    pagina = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Transacción de Tarjeta de Crédito"
+        verbose_name_plural = "Transacciones de Tarjetas de Crédito"
+        # Add a unique constraint if a transaction can be uniquely identified by these fields
+        # For now, allowing duplicates as multiple transactions can have same details but different IDs
+        unique_together = ('person', 'numero_tarjeta', 'fecha_transaccion', 'descripcion', 'valor_original')
+
+    def __str__(self):
+        return f"TC Transaction for {self.tarjetahabiente} ({self.numero_tarjeta[-4:]}) on {self.fecha_transaccion}"
 "@
 
 # Create admin.py with enhanced configuration
@@ -153,7 +188,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.urls import reverse
-from core.models import Person, Conflict, FinancialReport # Import FinancialReport
+from core.models import Person, Conflict, FinancialReport, TCS # Import TCS
 
 class ConflictForm(forms.ModelForm):
     class Meta:
@@ -180,14 +215,14 @@ class PersonAdmin(admin.ModelAdmin):
     list_editable = ('revisar',)
 
     # Custom fields to show in detail view
-    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link') # Add financial_reports_link
+    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link', 'tcs_transactions_link')
 
     fieldsets = (
         (None, {
             'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
         }),
         ('Related Records', {
-            'fields': ('conflicts_link', 'financial_reports_link'), # Add financial_reports_link
+            'fields': ('conflicts_link', 'financial_reports_link', 'tcs_transactions_link'), # Add tcs_transactions_link
             'classes': ('collapse',)
         }),
     )
@@ -267,6 +302,34 @@ class PersonAdmin(admin.ModelAdmin):
         return "-"
     financial_reports_link.short_description = 'Financial Reports'
     financial_reports_link.allow_tags = True
+
+    def tcs_transactions_link(self, obj):
+        if obj.pk:
+            tcs_transaction = obj.tcs_transactions.first()
+            if tcs_transaction:
+                change_url = reverse('admin:core_tcs_change', args=[tcs_transaction.pk])
+                add_url = reverse('admin:core_tcs_add') + f'?person={obj.pk}'
+                list_url = reverse('admin:core_tcs_changelist') + f'?q={obj.cedula}'
+
+                return format_html(
+                    '<div class="nowrap">'
+                    '<a href="{}" class="changelink">View/Edit TCS Transactions</a> &nbsp;'
+                    '<a href="{}" class="addlink">Add New TCS Transaction</a> &nbsp;'
+                    '<a href="{}" class="viewlink">All TCS Transactions</a>'
+                    '</div>',
+                    change_url,
+                    add_url,
+                    list_url
+                )
+            else:
+                add_url = reverse('admin:core_tcs_add') + f'?person={obj.pk}'
+                return format_html(
+                    '<a href="{}" class="addlink">Create TCS Transaction Record</a>',
+                    add_url
+                )
+        return "-"
+    tcs_transactions_link.short_description = 'TCS Transactions'
+    tcs_transactions_link.allow_tags = True
 
 
     def get_fieldsets(self, request, obj=None):
@@ -406,6 +469,27 @@ class FinancialReportAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+@admin.register(TCS)
+class TCSAdmin(admin.ModelAdmin):
+    list_display = (
+        'person', 'archivo', 'tarjetahabiente', 'numero_tarjeta',
+        'fecha_transaccion', 'descripcion', 'valor_original', 'cargos_abonos'
+    )
+    search_fields = (
+        'person__nombre_completo', 'person__cedula', 'tarjetahabiente',
+        'numero_tarjeta', 'descripcion'
+    )
+    list_filter = ('fecha_transaccion', 'tarjetahabiente')
+    raw_id_fields = ('person',)
+    fieldsets = (
+        (None, {
+            'fields': ('person', 'archivo', 'tarjetahabiente', 'numero_tarjeta', 'numero_autorizacion', 'fecha_transaccion')
+        }),
+        ('Transaction Details', {
+            'fields': ('descripcion', 'valor_original', 'tasa_pactada', 'tasa_ea_facturada', 'cargos_abonos', 'saldo_a_diferir', 'cuotas', 'pagina')
+        }),
+    )
 "@
 
 # Create urls.py for core app
@@ -420,7 +504,8 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons, import_tcs,
-                   import_finances, person_details, financial_report_list) 
+                   import_finances, person_details, financial_report_list,
+                   conflicts_missing_details_list, tcs_list) # Import the new view tcs_list
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -461,7 +546,9 @@ urlpatterns = [
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
     path('persons/', views.person_list, name='person_list'),
     path('conflicts/', views.conflict_list, name='conflict_list'),
-    path('financial-reports/', views.financial_report_list, name='financial_report_list'), 
+    path('conflicts/missing-details/', views.conflicts_missing_details_list, name='conflicts_missing_details_list'), # New URL pattern
+    path('financial-reports/', views.financial_report_list, name='financial_report_list'),
+    path('tcs-transactions/', views.tcs_list, name='tcs_list'), # New URL pattern for TCS transactions
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-protected-excel/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
@@ -470,6 +557,7 @@ urlpatterns = [
 
 # Update core/views.py with financial import
 Set-Content -Path "core/views.py" -Value @"
+# views.py
 import pandas as pd
 from datetime import datetime
 import os
@@ -483,7 +571,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person, Conflict, FinancialReport # Import FinancialReport
+from core.models import Person, Conflict, FinancialReport, TCS # Import TCS
 from django.db.models import Q
 import subprocess
 import msoffcrypto
@@ -499,7 +587,7 @@ def _clean_numeric_value(value):
     """
     if pd.isna(value):
         return None
-    
+
     str_value = str(value).strip()
     if not str_value:
         return None
@@ -559,11 +647,8 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
-        context['financial_report_count'] = FinancialReport.objects.count() # Add financial report count
-        # Initialize protected_count and tc_count for consistency, assuming they are tracked elsewhere
-        # If these counts are derived from the analysis files, they will be updated below.
-        context['protected_count'] = 0 # Placeholder, update if you track this in DB or from analysis
-        context['tc_count'] = 0 # Placeholder, update if you track this in DB or from analysis
+        context['finances_count'] = FinancialReport.objects.count()
+        context['tc_count'] = TCS.objects.count() # Get count from TCS model
 
         analysis_results = []
         core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
@@ -596,6 +681,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
             context['conflict_count'] = conflicts_status['records']
 
         # --- Status for Tarjetas de Credito ---
+        # The TCS model now directly tracks this, but we can still show the latest file status
         visa_dir = os.path.join(core_src_dir, 'visa')
         latest_visa_file = None
         latest_mtime = 0
@@ -615,7 +701,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
                 visa_status['records'] = len(df)
                 visa_status['status'] = 'success'
                 visa_status['last_updated'] = datetime.fromtimestamp(latest_mtime)
-                context['tc_count'] = len(df) # Update tc_count based on file
+                # context['tc_count'] is now from the model, no need to update from file here
             except Exception as e:
                 visa_status['status'] = 'error'
                 visa_status['error'] = f"Error reading file: {str(e)}"
@@ -632,7 +718,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
         # --- Status for Trends.py output files ---
         analysis_results.append(get_file_status('trends.xlsx'))
-        
+
         # --- Status for idTrends.xlsx ---
         idtrends_status = get_file_status('idTrends.xlsx')
         analysis_results.append(idtrends_status)
@@ -645,7 +731,13 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
 @login_required
 def main(request):
-    return render(request, 'home.html')
+    context = {}
+    context['person_count'] = Person.objects.count()
+    context['conflict_count'] = Conflict.objects.count()
+    context['finances_count'] = FinancialReport.objects.count()
+    context['tc_count'] = TCS.objects.count() # Get count from TCS model
+
+    return render(request, 'home.html', context)
 
 @login_required
 def import_persons(request):
@@ -1015,6 +1107,56 @@ def conflict_list(request):
     return render(request, 'conflicts.html', context)
 
 @login_required
+def conflicts_missing_details_list(request):
+    """
+    View to display conflicts where a 'Yes' answer to a question (q1-q7, q10, q11)
+    is not accompanied by a corresponding detail.
+    """
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+
+    # Define the conditions for conflicts with missing details
+    # Q(qX=True) & (Q(qX_detalle__isnull=True) | Q(qX_detalle=''))
+    missing_details_filter = (
+        (Q(q1=True) & (Q(q1_detalle__isnull=True) | Q(q1_detalle__exact=''))) |
+        (Q(q2=True) & (Q(q2_detalle__isnull=True) | Q(q2_detalle__exact=''))) |
+        (Q(q3=True) & (Q(q3_detalle__isnull=True) | Q(q3_detalle__exact=''))) |
+        (Q(q4=True) & (Q(q4_detalle__isnull=True) | Q(q4_detalle__exact=''))) |
+        (Q(q5=True) & (Q(q5_detalle__isnull=True) | Q(q5_detalle__exact=''))) |
+        (Q(q6=True) & (Q(q6_detalle__isnull=True) | Q(q6_detalle__exact=''))) |
+        (Q(q7=True) & (Q(q7_detalle__isnull=True) | Q(q7_detalle__exact=''))) |
+        (Q(q10=True) & (Q(q10_detalle__isnull=True) | Q(q10_detalle__exact=''))) |
+        (Q(q11=True) & (Q(q11_detalle__isnull=True) | Q(q11_detalle__exact='')))
+    )
+
+    conflicts = Conflict.objects.select_related('person').filter(missing_details_filter)
+
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    conflicts = conflicts.order_by(order_by)
+
+    # Re-use the existing context structure for consistency
+    paginator = Paginator(conflicts, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'conflicts': page_obj,
+        'page_obj': page_obj,
+        # No need for companias, column, answer filters in this specific view,
+        # but keep all_params for pagination sorting to work generally.
+        'companias': [], # Or fetch if needed for the layout (e.g., in the search form, which won't be used here directly)
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'missing_details_view': True, # Add a flag to indicate this is the missing details view
+    }
+
+    # Render conflicts.html, as the structure is very similar
+    return render(request, 'conflicts.html', context)
+
+
+@login_required
 def financial_report_list(request):
     search_query = request.GET.get('q', '')
     compania_filter = request.GET.get('compania', '')
@@ -1062,8 +1204,75 @@ def financial_report_list(request):
 
 
 @login_required
+def tcs_list(request):
+    """
+    View to display TCS (credit card) transactions.
+    """
+    search_query = request.GET.get('q', '')
+    compania_filter = request.GET.get('compania', '')
+    numero_tarjeta_filter = request.GET.get('numero_tarjeta', '')
+    fecha_transaccion_start = request.GET.get('fecha_transaccion_start', '')
+    fecha_transaccion_end = request.GET.get('fecha_transaccion_end', '')
+
+    order_by = request.GET.get('order_by', 'fecha_transaccion')
+    sort_direction = request.GET.get('sort_direction', 'desc') # Default to descending for dates
+
+    tcs_transactions = TCS.objects.select_related('person').all()
+
+    if search_query:
+        tcs_transactions = tcs_transactions.filter(
+            Q(person__nombre_completo__icontains=search_query) |
+            Q(person__cedula__icontains=search_query) |
+            Q(descripcion__icontains=search_query) |
+            Q(tarjetahabiente__icontains=search_query)
+        )
+
+    if compania_filter:
+        tcs_transactions = tcs_transactions.filter(person__compania=compania_filter)
+
+    if numero_tarjeta_filter:
+        # Filter by last 4 digits or full number
+        tcs_transactions = tcs_transactions.filter(numero_tarjeta__icontains=numero_tarjeta_filter)
+
+    if fecha_transaccion_start:
+        try:
+            start_date = datetime.strptime(fecha_transaccion_start, '%Y-%m-%d').date()
+            tcs_transactions = tcs_transactions.filter(fecha_transaccion__gte=start_date)
+        except ValueError:
+            messages.error(request, "Formato de fecha de inicio inválido.")
+
+    if fecha_transaccion_end:
+        try:
+            end_date = datetime.strptime(fecha_transaccion_end, '%Y-%m-%d').date()
+            tcs_transactions = tcs_transactions.filter(fecha_transaccion__lte=end_date)
+        except ValueError:
+            messages.error(request, "Formato de fecha de fin inválido.")
+
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    tcs_transactions = tcs_transactions.order_by(order_by)
+
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+
+    paginator = Paginator(tcs_transactions, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'tcs_transactions': page_obj,
+        'page_obj': page_obj,
+        'companias': companias,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+    }
+
+    return render(request, 'tcs.html', context)
+
+
+@login_required
 def import_tcs(request):
-    """View for importing credit card data from PDF files"""
+    """View for importing credit card data from PDF files and saving to TCS model"""
     if request.method == 'POST' and request.FILES.getlist('visa_pdf_files'):
         pdf_files = request.FILES.getlist('visa_pdf_files')
         password = request.POST.get('visa_pdf_password', '')
@@ -1073,11 +1282,6 @@ def import_tcs(request):
             visa_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'visa')
             os.makedirs(visa_dir, exist_ok=True)
 
-            # Save password if provided
-            if password:
-                with open(os.path.join(visa_dir, 'w_password.txt'), 'w') as f: # Changed filename to avoid conflict
-                    f.write(password)
-
             # Save all PDF files
             for pdf_file in pdf_files:
                 dest_path = os.path.join(visa_dir, pdf_file.name)
@@ -1085,18 +1289,94 @@ def import_tcs(request):
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
 
-            # Process the PDFs
+            # Process the PDFs using tcs.py
             subprocess.run(['python', 'core/tcs.py'], check=True, cwd=settings.BASE_DIR)
 
-            # Count processed transactions
-            output_file = os.path.join(visa_dir, f"VISA_{datetime.now().strftime('%Y%m%d')}.xlsx")
-            if os.path.exists(output_file):
-                df = pd.read_excel(output_file)
-                record_count = len(df)
-            else:
-                record_count = 0
+            # Find the latest generated Excel file by tcs.py
+            latest_visa_file = None
+            latest_mtime = 0
+            for f_name in os.listdir(visa_dir):
+                if f_name.startswith('VISA_') and f_name.endswith('.xlsx'):
+                    f_path = os.path.join(visa_dir, f_name)
+                    mtime = os.path.getmtime(f_path)
+                    if mtime > latest_mtime:
+                        latest_mtime = mtime
+                        latest_visa_file = f_path
 
-            messages.success(request, f'Archivos de tarjetas procesados exitosamente! {record_count} transacciones encontradas.')
+            record_count = 0
+            if latest_visa_file:
+                df = pd.read_excel(latest_visa_file)
+                df.columns = [col.lower().replace(' ', '_').replace('.', '').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u') for col in df.columns]
+
+                for _, row in df.iterrows():
+                    try:
+                        # Attempt to extract cedula from 'tarjetahabiente' or other means if available
+                        # For now, we'll try to find a person by name, which might not be unique.
+                        # A better approach would be to have cedula in the PDF output or a mapping.
+                        # For this example, we'll use the 'tarjetahabiente' as a loose identifier.
+                        tarjetahabiente_name = row.get('tarjetahabiente', '').strip()
+                        # Assuming the tarjetahabiente name in the TCS report might match a person's full name
+                        person = None
+                        if tarjetahabiente_name:
+                            # Try to find a person by full name
+                            person = Person.objects.filter(nombre_completo__iexact=tarjetahabiente_name).first()
+                            # If not found by full name, try to find by a partial match (e.g., first name, last name)
+                            if not person and len(tarjetahabiente_name.split()) > 1:
+                                first_name = tarjetahabiente_name.split()[0]
+                                last_name = tarjetahabiente_name.split()[-1]
+                                person = Person.objects.filter(
+                                    Q(nombre_completo__icontains=first_name) &
+                                    Q(nombre_completo__icontains=last_name)
+                                ).first()
+
+                        if not person:
+                            # If no person is found, you might want to create a placeholder Person
+                            # or skip this transaction. For now, we'll skip.
+                            messages.warning(request, f"Skipping TCS transaction for unknown person: {tarjetahabiente_name}")
+                            continue
+
+                        # Clean numeric values for float fields
+                        valor_original = _clean_numeric_value(row.get('valor_original'))
+                        cargos_abonos = _clean_numeric_value(row.get('cargos_y_abonos'))
+                        saldo_a_diferir = _clean_numeric_value(row.get('saldo_a_diferir'))
+
+                        # Convert date string to date object
+                        fecha_transaccion_str = row.get('fecha_de_transaccion')
+                        fecha_transaccion = None
+                        if pd.notna(fecha_transaccion_str):
+                            try:
+                                fecha_transaccion = datetime.strptime(str(fecha_transaccion_str), '%d/%m/%Y').date()
+                            except ValueError:
+                                try: # Try another common format if the first fails
+                                    fecha_transaccion = datetime.strptime(str(fecha_transaccion_str), '%Y-%m-%d %H:%M:%S').date()
+                                except ValueError:
+                                    messages.warning(request, f"Could not parse date '{fecha_transaccion_str}' for transaction.")
+
+
+                        TCS.objects.update_or_create(
+                            person=person,
+                            numero_tarjeta=str(row.get('numero_de_tarjeta', '')),
+                            fecha_transaccion=fecha_transaccion,
+                            descripcion=row.get('descripcion', ''),
+                            valor_original=valor_original,
+                            defaults={
+                                'archivo': row.get('archivo', ''),
+                                'tarjetahabiente': tarjetahabiente_name,
+                                'numero_autorizacion': str(row.get('numero_de_autorizacion', '')),
+                                'tasa_pactada': str(row.get('tasa_pactada', '')),
+                                'tasa_ea_facturada': str(row.get('tasa_ea_facturada', '')),
+                                'cargos_abonos': cargos_abonos,
+                                'saldo_a_diferir': saldo_a_diferir,
+                                'cuotas': str(row.get('cuotas', '')),
+                                'pagina': _clean_numeric_value(row.get('pagina')),
+                            }
+                        )
+                        record_count += 1
+                    except Exception as e:
+                        messages.error(request, f"Error processing TCS row: {row.to_dict()} - {str(e)}")
+                        continue
+
+            messages.success(request, f'Archivos de tarjetas procesados exitosamente! {record_count} transacciones importadas al modelo.')
         except subprocess.CalledProcessError as e:
             messages.error(request, f'Error procesando archivos PDF: {str(e)}')
         except Exception as e:
@@ -1183,11 +1463,13 @@ def person_details(request, cedula):
         person = Person.objects.get(cedula=cedula)
         conflicts = Conflict.objects.filter(person=person)
         financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') # Fetch financial reports
+        tcs_transactions = TCS.objects.filter(person=person).order_by('-fecha_transaccion') # Fetch TCS transactions
 
         context = {
             'myperson': person,
             'conflicts': conflicts,
             'financial_reports': financial_reports, # Pass financial reports to context
+            'tcs_transactions': tcs_transactions, # Pass TCS transactions to context
         }
 
         return render(request, 'details.html', context)
@@ -3103,10 +3385,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -3116,7 +3398,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
-        <i class="fas fa-upload"></i> 
+        <i class="fas fa-upload"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -3128,16 +3410,45 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card border-0 shadow">
-            <div class="card-body p-5">
-                <div style="align-items: center; text-align: center;"> 
-                    <h5 class="card-title">Bienvenido a ARPA</h5>
-                    <p class="card-text">Automatizacion Robotica de Procesos de Auditoria</p>
-                </div>
+<div class="row mb-4">
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'person_list' %}" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-users fa-3x text-primary mb-2"></i> {# Adjusted margin-bottom #}
+                <h5 class="card-title mb-1">Personas</h5> {# Adjusted margin-bottom #}
+                <h2 class="card-text">{{ person_count }}</h2> {# Larger text for count #}
             </div>
-        </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-balance-scale fa-3x text-warning mb-2"></i>
+                <h5 class="card-title mb-1">Conflictos</h5>
+                <h2 class="card-text">{{ conflict_count }}</h2>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'financial_report_list' %}" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
+                <h5 class="card-title mb-1">Bienes y Rentas</h5>
+                <h2 class="card-text">{{ finances_count }}</h2>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'tcs_list' %}" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="far fa-credit-card fa-3x text-info mb-2"></i>
+                <h5 class="card-title mb-1">Tarjetas de Credito</h5>
+                <h2 class="card-text">{{ tc_count }}</h2>
+            </div>
+        </a>
     </div>
 </div>
 {% endblock %}
@@ -3297,10 +3608,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -3435,7 +3746,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="card-footer">
                 <div class="d-flex align-items-center">
                     <span class="badge bg-success">
-                        {{ protected_count }} Bienes y Rentas Registradas
+                        {{ finances_count }} Bienes y Rentas Registradas
                     </span>
                 </div>
             </div>
@@ -3453,7 +3764,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
                         <div class="mb-3">
                             <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password">
-                            <div class="form-text">Ingrese la clave si los PDFs están protegidos</div>
+                            <div class="form-text">Ingrese la clave si los PDFs estÃ¡n protegidos</div>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar TCs</button>
@@ -3557,10 +3868,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -3790,13 +4104,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block navbar_buttons %}
 <div>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="" class="btn btn-custom-primary">
@@ -3815,27 +4132,36 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 
 {% block content %}
-<!-- Search Form -->
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center no-loading">
-            <div class="d-flex align-items-center">
-                <span class="badge bg-success">
+            <div class="d-flex align-items-center mb-3"> {# Added mb-3 for spacing #}
+                <span class="badge bg-success me-2"> {# Added me-2 for spacing #}
                     {{ page_obj.paginator.count }} registros
                 </span>
                 {% if request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                 {% endif %}
+
+                {# New button for conflicts with missing details #}
+                {% if not missing_details_view %}
+                    <a href="{% url 'conflicts_missing_details_list' %}" class="btn btn-warning btn-sm ms-auto">
+                        <i class="fas fa-exclamation-triangle"></i> Conflictos sin Detalle
+                    </a>
+                {% else %}
+                    {# Button to go back to all conflicts #}
+                    <a href="{% url 'conflict_list' %}" class="btn btn-primary btn-sm ms-auto">
+                        <i class="fas fa-list"></i> Ver Todos los Conflictos
+                    </a>
+                {% endif %}
             </div>
-            <!-- General Search -->
             <div class="col-md-4">
-                <input type="text" 
-                       name="q" 
-                       class="form-control form-control-lg" 
-                       placeholder="Buscar..." 
+                <input type="text"
+                       name="q"
+                       class="form-control form-control-lg"
+                       placeholder="Buscar..."
                        value="{{ request.GET.q }}">
             </div>
 
-            <!-- Compania Filter -->
             <div class="col-md-2">
                 <select name="compania" class="form-select form-select-lg">
                     <option value="">Compania</option>
@@ -3844,8 +4170,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     {% endfor %}
                 </select>
             </div>
-            
-            <!-- Column Selector -->
+
             <div class="col-md-2">
                 <select name="column" class="form-select form-select-lg">
                     <option value="">Selecciona Pregunta</option>
@@ -3862,8 +4187,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="q11" {% if request.GET.column == 'q11' %}selected{% endif %}>Relacion con sector publico</option>
                 </select>
             </div>
-            
-            <!-- Answer Selector -->
+
             <div class="col-md-2">
                 <select name="answer" class="form-select form-select-lg">
                     <option value="">Selecciona Respuesta</option>
@@ -3871,8 +4195,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="no" {% if request.GET.answer == 'no' %}selected{% endif %}>No</option>
                 </select>
             </div>
-            
-            <!-- Submit Buttons -->
+
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
@@ -3881,7 +4204,6 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- Conflicts Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
@@ -3985,7 +4307,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
-                                <a href="{% url 'person_details' conflict.person.cedula %}" 
+                                <a href="{% url 'person_details' conflict.person.cedula %}"
                                    class="btn btn-custom-primary btn-sm"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
@@ -3995,7 +4317,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     {% empty %}
                         <tr>
                             <td colspan="15" class="text-center py-4">
-                                {% if request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
+                                {% if missing_details_view %} {# Conditional message for the new view #}
+                                    No hay conflictos con detalles faltantes para respuestas "Sí".
+                                {% elif request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
                                     Sin registros de conflictos
@@ -4006,8 +4330,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </tbody>
             </table>
         </div>
-        
-        <!-- Pagination -->
+
         {% if page_obj.has_other_pages %}
         <div class="p-3">
             <nav aria-label="Page navigation">
@@ -4024,7 +4347,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </a>
                         </li>
                     {% endif %}
-                    
+
                     {% for num in page_obj.paginator.page_range %}
                         {% if page_obj.number == num %}
                             <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
@@ -4032,7 +4355,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
                         {% endif %}
                     {% endfor %}
-                    
+
                     {% if page_obj.has_next %}
                         <li class="page-item">
                             <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
@@ -4056,33 +4379,40 @@ document.addEventListener('DOMContentLoaded', function() {
 
 @"
 {% extends "master.html" %}
+{% load static %}
 
-{% block title %}Tarjetas de Credito{% endblock %}
-{% block navbar_title %}Tarjetas de Credito{% endblock %}
+{% block title %}A R P A - Transacciones de Tarjetas de Crédito{% endblock %}
+{% block navbar_title %}A R P A{% endblock %}
 
 {% block navbar_buttons %}
 <div>
-    <a href="" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="{% url 'financial_list' %}" class="btn btn-custom-primary">
-        <i class="fas fa-chart-line" style="color: green;"></i>
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% endif %}
+        {% if alerts_count == 0 %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Importar">
-        <i class="fas fa-upload"></i>
-    </a>
-    <a href="?{% for key, value in request.GET.items %}{{ key }}={{ value }}&{% endfor %}export=excel" class="btn btn-custom-primary btn-my-green" title="Exportar">
-        <i class="fas fa-file-excel"></i>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-upload"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
             <i class="fas fa-sign-out-alt"></i>
         </button>
     </form>
@@ -4094,38 +4424,63 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
-            <!-- General Search 
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success">
+                    {{ page_obj.paginator.count }} registros
+                </span>
+                {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end %}
+                {% endif %}
+            </div>
+            <!-- General Search (Person Name/Cedula/Description) -->
             <div class="col-md-4">
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
-                       placeholder="Buscar tarjetahabiente..." 
+                       placeholder="Buscar persona, cedula o descripcion..." 
                        value="{{ request.GET.q }}">
-            </div> -->
+            </div>
             
-            <!-- Card Type Filter -->
+            <!-- Compania Filter -->
             <div class="col-md-3">
-                <select name="card_type" class="form-select form-select-lg">
-                    <option value="">Tipo</option>
-                    <option value="MC" {% if request.GET.card_type == 'MC' %}selected{% endif %}>Mastercard</option>
-                    <option value="VI" {% if request.GET.card_type == 'VI' %}selected{% endif %}>Visa</option>
+                <select name="compania" class="form-select form-select-lg">
+                    <option value="">Compania</option>
+                    {% for compania in companias %}
+                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
+                    {% endfor %}
                 </select>
             </div>
-            
-            <!-- Date Range -->
+
+            <!-- Numero Tarjeta Filter -->
             <div class="col-md-3">
-                <input type="date" 
-                       name="date_from" 
+                <input type="text" 
+                       name="numero_tarjeta" 
                        class="form-control form-control-lg" 
-                       value="{{ request.GET.date_from }}">
+                       placeholder="Numero de Tarjeta (ultimos 4 digitos)" 
+                       value="{{ request.GET.numero_tarjeta }}">
             </div>
+
+            <!-- Fecha Transaccion Start Filter 
             <div class="col-md-3">
+                <label for="fecha_transaccion_start" class="form-label visually-hidden">Fecha Inicio</label>
                 <input type="date" 
-                       name="date_to" 
+                       name="fecha_transaccion_start" 
+                       id="fecha_transaccion_start"
                        class="form-control form-control-lg" 
-                       value="{{ request.GET.date_to }}">
+                       title="Fecha de Transacción (Desde)"
+                       value="{{ request.GET.fecha_transaccion_start }}">
             </div>
-            
+
+            Fecha Transaccion End Filter 
+            <div class="col-md-3">
+                <label for="fecha_transaccion_end" class="form-label visually-hidden">Fecha Fin</label>
+                <input type="date" 
+                       name="fecha_transaccion_end" 
+                       id="fecha_transaccion_end"
+                       class="form-control form-control-lg" 
+                       title="Fecha de Transacción (Hasta)"
+                       value="{{ request.GET.fecha_transaccion_end }}">
+            </div>
+            -->
             <!-- Submit Buttons -->
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
@@ -4135,7 +4490,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- Cards Table -->
+<!-- TCS Transactions Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
@@ -4144,80 +4499,109 @@ document.addEventListener('DOMContentLoaded', function() {
                     <tr>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Persona
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cedula&sort_direction={% if current_order == 'person__cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cedula
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tarjetahabiente&sort_direction={% if current_order == 'tarjetahabiente' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Tarjetahabiente
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=card_type&sort_direction={% if current_order == 'card_type' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Tipo
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=numero_tarjeta&sort_direction={% if current_order == 'numero_tarjeta' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                No. Tarjeta
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=card_number&sort_direction={% if current_order == 'card_number' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Numero
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_transaccion&sort_direction={% if current_order == 'fecha_transaccion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Fecha Transacción
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=transaction_date&sort_direction={% if current_order == 'transaction_date' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Fecha
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=descripcion&sort_direction={% if current_order == 'descripcion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Descripción
                             </a>
                         </th>
-                        <th style="color: rgb(0, 0, 0);">DescripciÃ³n</th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=original_value&sort_direction={% if current_order == 'original_value' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=valor_original&sort_direction={% if current_order == 'valor_original' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Valor Original
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=exchange_rate&sort_direction={% if current_order == 'exchange_rate' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Tasa
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargos_abonos&sort_direction={% if current_order == 'cargos_abonos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargos/Abonos
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=charges&sort_direction={% if current_order == 'charges' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cargos
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=saldo_a_diferir&sort_direction={% if current_order == 'saldo_a_diferir' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Saldo a Diferir
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=balance&sort_direction={% if current_order == 'balance' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Saldo
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cuotas&sort_direction={% if current_order == 'cuotas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cuotas
                             </a>
                         </th>
-                        <th style="color: rgb(0, 0, 0);">Cuotas</th>
-                        <th style="color: rgb(0, 0, 0);">Archivo</th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tasa_pactada&sort_direction={% if current_order == 'tasa_pactada' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tasa Pactada
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tasa_ea_facturada&sort_direction={% if current_order == 'tasa_ea_facturada' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tasa EA Facturada
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=numero_autorizacion&sort_direction={% if current_order == 'numero_autorizacion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                No. Autorización
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pagina&sort_direction={% if current_order == 'pagina' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Página
+                            </a>
+                        </th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver Persona</th>
                     </tr>
                 </thead>
-                <!-- In your table body -->
                 <tbody>
-                    {% for card in page_obj.object_list %}  <!-- Changed from cards to page_obj.object_list -->
-                    <tr {% if card.person.revisar %}class="table-warning"{% endif %}>
-                        <td>{{ card.person.nombre_completo }}</td>
-                        <td>{{ card.get_card_type_display }}</td>
-                        <td>**** **** **** {{ card.card_number|slice:"-4:" }}</td>
-                        <td>{{ card.transaction_date|date:"d/m/Y" }}</td>
-                        <td>{{ card.description|truncatechars:30 }}</td>
-                        <td>`$`{{ card.original_value|floatformat:2 }}</td>
-                        <td>{{ card.exchange_rate|default_if_none:"-"|floatformat:4 }}</td>
-                        <td>`$`{{ card.charges|default_if_none:"-"|floatformat:2 }}</td>
-                        <td>`$`{{ card.balance|default_if_none:"-"|floatformat:2 }}</td>
-                        <td>{{ card.installments|default:"-" }}</td>
-                        <td>{{ card.source_file|truncatechars:15 }}</td>
-                        <td class="table-fixed-column">
-                            <a href="/persons/details/{{ card.person.cedula }}/" 
-                            class="btn btn-custom-primary btn-sm"
-                            title="Ver detalles">
-                                <i class="bi bi-person-vcard-fill"></i>
-                            </a>
-                        </td>
-                    </tr>
+                    {% for transaction in tcs_transactions %}
+                        <tr>
+                            <td>{{ transaction.person.nombre_completo }}</td>
+                            <td>{{ transaction.person.cedula }}</td>
+                            <td>{{ transaction.tarjetahabiente|default:"N/A" }}</td>
+                            <td>{{ transaction.numero_tarjeta|default:"N/A" }}</td>
+                            <td>{{ transaction.fecha_transaccion|date:"Y-m-d"|default:"N/A" }}</td>
+                            <td>{{ transaction.descripcion|default:"N/A" }}</td>
+                            <td>{{ transaction.valor_original|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ transaction.cargos_abonos|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ transaction.saldo_a_diferir|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ transaction.cuotas|default:"N/A" }}</td>
+                            <td>{{ transaction.tasa_pactada|default:"N/A" }}</td>
+                            <td>{{ transaction.tasa_ea_facturada|default:"N/A" }}</td>
+                            <td>{{ transaction.numero_autorizacion|default:"N/A" }}</td>
+                            <td>{{ transaction.pagina|default:"N/A" }}</td>
+                            <td class="table-fixed-column">
+                                <a href="{% url 'person_details' transaction.person.cedula %}" 
+                                   class="btn btn-custom-primary btn-sm"
+                                   title="View person details">
+                                    <i class="bi bi-person-vcard-fill"></i>
+                                </a>
+                            </td>
+                        </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="12" class="text-center py-4">
-                                {% if request.GET.q or request.GET.card_type or request.GET.date_from or request.GET.date_to %}
-                                    No se encontraron transacciones con los filtros aplicados.
+                            <td colspan="15" class="text-center py-4">
+                                {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end %}
+                                    Sin transacciones de tarjetas de crédito que coincidan con los filtros.
                                 {% else %}
-                                    No hay transacciones de tarjetas registradas.
+                                    Sin transacciones de tarjetas de crédito
                                 {% endif %}
                             </td>
                         </tr>
@@ -4271,35 +4655,45 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 {% endblock %}
-"@ | Out-File -FilePath "core/templates/cards.html" -Encoding utf8
+"@ | Out-File -FilePath "core/templates/tcs.html" -Encoding utf8
 
 # finances template
 @" 
 {% extends "master.html" %}
+{% load static %}
 
-{% block title %}Bienes y Rentas{% endblock %}
-{% block navbar_title %}Bienes y Rentas{% endblock %}
+{% block title %}A R P A - Reportes Financieros{% endblock %}
+{% block navbar_title %}A R P A{% endblock %}
 
 {% block navbar_buttons %}
 <div>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% endif %}
+        {% if alerts_count == 0 %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
-        <i class="fas fa-upload"></i>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-upload"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesiÃ³n">
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
             <i class="fas fa-sign-out-alt"></i>
         </button>
     </form>
@@ -4311,53 +4705,40 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success">
+                    {{ page_obj.paginator.count }} registros
+                </span>
+                {% if request.GET.q or request.GET.compania or request.GET.ano_declaracion %}
+                {% endif %}
+            </div>
             <!-- General Search -->
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
-                       placeholder="Buscar persona..." 
+                       placeholder="Buscar persona o cedula..." 
                        value="{{ request.GET.q }}">
             </div>
             
-            <!-- Column Selector -->
+            <!-- Compania Filter -->
             <div class="col-md-3">
-                <select name="column" class="form-select form-select-lg">
-                    <option value="">Selecciona Columna</option>
-                    <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
-                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aum. Pat. Subito</option>
-                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Rel.</option>
-                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Rel.</option>
-                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Rel.</option>
-                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Rel.</option>
-                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Rel.</option>
-                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>BancoSaldo Var. Rel.</option>
-                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Rel.</option>
-                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Rel.</option>
+                <select name="compania" class="form-select form-select-lg">
+                    <option value="">Compania</option>
+                    {% for compania in companias %}
+                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
+                    {% endfor %}
                 </select>
             </div>
-            
-            <!-- Operator Selector -->
-            <div class="col-md-2">
-                <select name="operator" class="form-select form-select-lg">
-                    <option value="">Selecciona operador</option>
-                    <option value=">" {% if request.GET.operator == '>' %}selected{% endif %}>Mayor que</option>
-                    <option value="<" {% if request.GET.operator == '<' %}selected{% endif %}>Menor que</option>
-                    <option value="=" {% if request.GET.operator == '=' %}selected{% endif %}>Igual a</option>
-                    <option value=">=" {% if request.GET.operator == '>=' %}selected{% endif %}>Mayor o igual</option>
-                    <option value="<=" {% if request.GET.operator == '<=' %}selected{% endif %}>Menor o igual</option>
-                    <option value="between" {% if request.GET.operator == 'between' %}selected{% endif %}>Entre</option>
-                    <option value="contains" {% if request.GET.operator == 'contains' %}selected{% endif %}>Contiene</option>
+
+            <!-- Año Declaración Filter -->
+            <div class="col-md-3">
+                <select name="ano_declaracion" class="form-select form-select-lg">
+                    <option value="">Ano Declaracion</option>
+                    {% for ano in anos_declaracion %}
+                        <option value="{{ ano }}" {% if request.GET.ano_declaracion|stringformat:"s" == ano|stringformat:"s" %}selected{% endif %}>{{ ano }}</option>
+                    {% endfor %}
                 </select>
-            </div>
-            
-            <!-- Value Input -->
-            <div class="col-md-2">
-                <input type="text" 
-                       name="value" 
-                       class="form-control form-control-lg" 
-                       placeholder="Valor" 
-                       value="{{ request.GET.value }}">
             </div>
             
             <!-- Submit Buttons -->
@@ -4369,7 +4750,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- Persons Table -->
+<!-- Financial Reports Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
@@ -4377,238 +4758,110 @@ document.addEventListener('DOMContentLoaded', function() {
                 <thead class="table-fixed-header">
                     <tr>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Revisar
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Persona
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Nombre
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cedula&sort_direction={% if current_order == 'person__cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cedula
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Compania
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cargo
-                            </a>
-                        </th>
-                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
-                        <th style="color: rgb(0, 0, 0);">Periodo</th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ano_declaracion&sort_direction={% if current_order == 'financial_reports__ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ano_declaracion&sort_direction={% if current_order == 'ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ano
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__aum_pat_subito&sort_direction={% if current_order == 'financial_reports__aum_pat_subito' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Aum. Pat. Subito
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fk_id_periodo&sort_direction={% if current_order == 'fk_id_periodo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Periodo
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio&sort_direction={% if current_order == 'financial_reports__patrimonio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Patrimonio
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio_var_rel&sort_direction={% if current_order == 'financial_reports__patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Patrimonio Var. Rel. % 
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__patrimonio_var_abs&sort_direction={% if current_order == 'financial_reports__patrimonio_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Patrimonio Var. Abs. $
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos&sort_direction={% if current_order == 'financial_reports__activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos&sort_direction={% if current_order == 'activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Activos
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos_var_rel&sort_direction={% if current_order == 'financial_reports__activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Activos Var. Rel. %
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__activos_var_abs&sort_direction={% if current_order == 'financial_reports__activos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Activos Var. Abs. $
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos&sort_direction={% if current_order == 'financial_reports__pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos&sort_direction={% if current_order == 'pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Pasivos
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos_var_rel&sort_direction={% if current_order == 'financial_reports__pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Pasivos Var. Rel. 
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio&sort_direction={% if current_order == 'patrimonio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__pasivos_var_abs&sort_direction={% if current_order == 'financial_reports__pasivos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Pasivos Var. Abs. $
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_deudas&sort_direction={% if current_order == 'financial_reports__cant_deudas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Deudas
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos&sort_direction={% if current_order == 'financial_reports__ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos&sort_direction={% if current_order == 'ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ingresos
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos_var_rel&sort_direction={% if current_order == 'financial_reports__ingresos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Ingresos Var. Rel. %
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=apalancamiento&sort_direction={% if current_order == 'apalancamiento' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Apalancamiento
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__ingresos_var_abs&sort_direction={% if current_order == 'financial_reports__ingresos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Ingresos Var. Abs. $
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=endeudamiento&sort_direction={% if current_order == 'endeudamiento' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Endeudamiento
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_ingresos&sort_direction={% if current_order == 'financial_reports__cant_ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Ingresos
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_rel&sort_direction={% if current_order == 'activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Var. Activos (%)
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo&sort_direction={% if current_order == 'financial_reports__banco_saldo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bancos Saldo
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_rel&sort_direction={% if current_order == 'pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Var. Pasivos (%)
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo_var_rel&sort_direction={% if current_order == 'financial_reports__banco_saldo_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bancos Var. %
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_rel&sort_direction={% if current_order == 'patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Var. Patrimonio (%)
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__banco_saldo_var_abs&sort_direction={% if current_order == 'financial_reports__banco_saldo_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bancos Var. $
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos_var_rel&sort_direction={% if current_order == 'ingresos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Var. Ingresos (%)
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_cuentas&sort_direction={% if current_order == 'financial_reports__cant_cuentas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Cuentas
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_bancos&sort_direction={% if current_order == 'financial_reports__cant_bancos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Bancos
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_valor&sort_direction={% if current_order == 'financial_reports__bienes_valor' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bienes Valor
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_var_rel&sort_direction={% if current_order == 'financial_reports__bienes_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bienes Var. %
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__bienes_var_abs&sort_direction={% if current_order == 'financial_reports__bienes_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bienes Var. $
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_bienes&sort_direction={% if current_order == 'financial_reports__cant_bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Bienes
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_valor&sort_direction={% if current_order == 'financial_reports__inversiones_valor' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Inversiones Valor
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_var_rel&sort_direction={% if current_order == 'financial_reports__inversiones_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Inversiones Var. %
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__inversiones_var_abs&sort_direction={% if current_order == 'financial_reports__inversiones_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Inversiones Var. $
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=financial_reports__cant_inversiones&sort_direction={% if current_order == 'financial_reports__cant_inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cant. Inversiones
-                            </a>
-                        </th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver Persona</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for person in persons %}
-                        {% for report in person.financial_reports.all %}
-                        <tr {% if person.revisar %}class="table-warning"{% endif %}>
-                            <td>
-                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
-                                    <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
-                                </a>
-                            </td>
-                            <td>{{ person.nombre_completo }}</td>
-                            <td>{{ person.compania }}</td>
-                            <td>{{ person.cargo }}</td>
-                            <td>{{ person.comments|truncatechars:30|default:"" }}</td>
-                            <td>{{ report.fkIdPeriodo|floatformat:"0"|default:"-" }}</td>
-                            <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
-                            <td>{{ report.aum_pat_subito|default:"-" }}</td>
-                            <td>{{ report.patrimonio|default:"-" }}</td>
-                            <td>{{ report.patrimonio_var_rel|default:"-" }}</td>
-                            <td>{{ report.patrimonio_var_abs|default:"-" }}</td>
-                            <td>{{ report.activos|default:"-" }}</td>
-                            <td>{{ report.activos_var_rel|default:"-" }}</td>
-                            <td>{{ report.activos_var_abs|default:"-" }}</td>
-                            <td>{{ report.pasivos|default:"-" }}</td>
-                            <td>{{ report.pasivos_var_rel|default:"-" }}</td>
-                            <td>{{ report.pasivos_var_abs|default:"-" }}</td>
-                            <td>{{ report.cant_deudas|default:"-" }}</td>
-                            <td>{{ report.ingresos|default:"-" }}</td>
-                            <td>{{ report.ingresos_var_rel|default:"-" }}</td>
-                            <td>{{ report.ingresos_var_abs|default:"-" }}</td>
-                            <td>{{ report.cant_ingresos|default:"-" }}</td>
-                            <td>{{ report.banco_saldo|default:"-" }}</td>
-                            <td>{{ report.banco_saldo_var_rel|default:"-" }}</td>
-                            <td>{{ report.banco_saldo_var_abs|default:"-" }}</td>
-                            <td>{{ report.cant_cuentas|default:"-" }}</td>
-                            <td>{{ report.cant_bancos|default:"-" }}</td>
-                            <td>{{ report.bienes|default:"-" }}</td>
-                            <td>{{ report.bienes_var_rel|default:"-" }}</td>
-                            <td>{{ report.bienes_var_abs|default:"-" }}</td>
-                            <td>{{ report.cant_bienes|default:"-" }}</td>
-                            <td>{{ report.inversiones|default:"-" }}</td>
-                            <td>{{ report.inversiones_var_rel|default:"-" }}</td>
-                            <td>{{ report.inversiones_var_abs|default:"-" }}</td>
-                            <td>{{ report.cant_inversiones|default:"-" }}</td>
+                    {% for report in financial_reports %}
+                        <tr>
+                            <td>{{ report.person.nombre_completo }}</td>
+                            <td>{{ report.person.cedula }}</td>
+                            <td>{{ report.ano_declaracion|default:"N/A" }}</td>
+                            <td>{{ report.fk_id_periodo|default:"N/A" }}</td>
+                            <td>{{ report.activos|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ report.pasivos|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ report.patrimonio|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ report.ingresos|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ report.apalancamiento|default:"N/A" }}</td>
+                            <td>{{ report.endeudamiento|default:"N/A" }}</td>
+                            <td>{{ report.activos_var_rel|default:"N/A" }}</td>
+                            <td>{{ report.pasivos_var_rel|default:"N/A" }}</td>
+                            <td>{{ report.patrimonio_var_rel|default:"N/A" }}</td>
+                            <td>{{ report.ingresos_var_rel|default:"N/A" }}</td>
                             <td class="table-fixed-column">
-                                <a href="/persons/details/{{ person.cedula }}/" 
+                                <a href="{% url 'person_details' report.person.cedula %}" 
                                    class="btn btn-custom-primary btn-sm"
-                                   title="View details">
+                                   title="View person details">
                                     <i class="bi bi-person-vcard-fill"></i>
                                 </a>
                             </td>
                         </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="14">{{ person.nombre_completo }} - No hay reportes financieros</td>
-                        </tr>
-                        {% endfor %}
                     {% empty %}
                         <tr>
-                            <td colspan="14" class="text-center py-4">
-                                {% if request.GET.q or request.GET.column or request.GET.operator or request.GET.value %}
-                                    Sin registros que coincidan con los filtros.
+                            <td colspan="15" class="text-center py-4">
+                                {% if request.GET.q or request.GET.compania or request.GET.ano_declaracion %}
+                                    Sin reportes financieros que coincidan con los filtros.
                                 {% else %}
-                                    Sin registros
+                                    Sin reportes financieros
                                 {% endif %}
                             </td>
                         </tr>
