@@ -505,7 +505,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons, import_tcs,
                    import_finances, person_details, financial_report_list,
-                   conflicts_missing_details_list, tcs_list, export_persons_excel) # Import the new view export_persons_excel
+                   tcs_list, export_persons_excel) # Import the new view export_persons_excel
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -545,11 +545,10 @@ urlpatterns = [
     path('import-persons/', views.import_persons, name='import_persons'),
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
     path('persons/', views.person_list, name='person_list'),
-    path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), # New URL pattern for Excel export
+    path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), 
     path('conflicts/', views.conflict_list, name='conflict_list'),
-    path('conflicts/missing-details/', views.conflicts_missing_details_list, name='conflicts_missing_details_list'), # New URL pattern
     path('financial-reports/', views.financial_report_list, name='financial_report_list'),
-    path('tcs-transactions/', views.tcs_list, name='tcs_list'), # New URL pattern for TCS transactions
+    path('tcs-transactions/', views.tcs_list, name='tcs_list'), 
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-finances/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
@@ -558,6 +557,7 @@ urlpatterns = [
 
 # Update core/views.py with financial import
 Set-Content -Path "core/views.py" -Value @"
+# views.py
 # views.py
 import pandas as pd
 from datetime import datetime
@@ -765,7 +765,7 @@ def import_persons(request):
             column_mapping = {
                 'id': 'id', # Assuming 'id' column might exist in the input, or we'll add it later
                 'nombre completo': 'nombre_completo',
-                'correo': 'original_correo', # Temporarily rename input 'correo' to avoid conflict
+                'ccorreo_normalizado': 'original_correo', # Temporarily rename input 'correo' to avoid conflict
                 'cedula': 'cedula',
                 'estado': 'estado',
                 'compania': 'compania',
@@ -789,12 +789,16 @@ def import_persons(request):
                 messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
                 return HttpResponseRedirect('/import/')
 
+            # Convert nombre_completo to title case if it exists
+            if 'nombre_completo' in df.columns:
+                df['nombre_completo'] = df['nombre_completo'].str.title()
+
             # and assign it to the 'correo' column in the DataFrame.
             if 'original_correo' in df.columns:
                 # Keep '@' symbol, only remove periods and convert to lowercase
-                df['correo'] = df['original_correo'].str.lower().str.replace('.', '', regex=False)
+                df['correo_normalizado'] = df['original_correo'].str.lower().str.replace('.', '', regex=False)
             else:
-                df['correo'] = '' # Initialize if no original email is present
+                df['correo_normalizado'] = '' # Initialize if no original email is present
 
             # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo'
             output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo']
@@ -813,7 +817,7 @@ def import_persons(request):
                 output_columns_df['Compania'] = df['compania']
             if 'cargo' in df.columns:
                 output_columns_df['CARGO'] = df['cargo']
-            if 'correo' in df.columns: # Use the newly created 'correo' column (normalized)
+            if 'correo_normalizado' in df.columns: # Use the newly created 'correo' column (normalized)
                 output_columns_df['correo'] = df['correo']
 
             # Define the path for the output Excel file
@@ -828,7 +832,7 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''), # Save the normalized email to the 'correo' field
+                        'correo': row.get('correo', ''), 
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
@@ -881,26 +885,26 @@ def import_conflicts(request):
                         person=person,
                         defaults={
                             'fecha_inicio': row.get('fecha_de_inicio', None),
-                            'q1': bool(row.get('q1', False)),
-                            'q1_detalle': row.get('q1_detalle', ''), # New field
-                            'q2': bool(row.get('q2', False)),
-                            'q2_detalle': row.get('q2_detalle', ''), # New field
-                            'q3': bool(row.get('q3', False)),
-                            'q3_detalle': row.get('q3_detalle', ''), # New field
-                            'q4': bool(row.get('q4', False)),
-                            'q4_detalle': row.get('q4_detalle', ''), # New field
-                            'q5': bool(row.get('q5', False)),
-                            'q5_detalle': row.get('q5_detalle', ''), # New field
-                            'q6': bool(row.get('q6', False)),
-                            'q6_detalle': row.get('q6_detalle', ''), # New field
-                            'q7': bool(row.get('q7', False)),
-                            'q7_detalle': row.get('q7_detalle', ''), # New field
-                            'q8': bool(row.get('q8', False)),
-                            'q9': bool(row.get('q9', False)),
-                            'q10': bool(row.get('q10', False)),
-                            'q10_detalle': row.get('q10_detalle', ''), # New field
-                            'q11': bool(row.get('q11', False)),
-                            'q11_detalle': row.get('q11_detalle', '') # New field
+                            'q1': not pd.isna(row.get('q1')) and bool(row.get('q1', False)), # Check for NaN first
+                            'q1_detalle': row.get('q1_detalle', ''),
+                            'q2': not pd.isna(row.get('q2')) and bool(row.get('q2', False)), # Check for NaN first
+                            'q2_detalle': row.get('q2_detalle', ''),
+                            'q3': not pd.isna(row.get('q3')) and bool(row.get('q3', False)), # Check for NaN first
+                            'q3_detalle': row.get('q3_detalle', ''),
+                            'q4': not pd.isna(row.get('q4')) and bool(row.get('q4', False)), # Check for NaN first
+                            'q4_detalle': row.get('q4_detalle', ''),
+                            'q5': not pd.isna(row.get('q5')) and bool(row.get('q5', False)), # Check for NaN first
+                            'q5_detalle': row.get('q5_detalle', ''),
+                            'q6': not pd.isna(row.get('q6')) and bool(row.get('q6', False)), # Check for NaN first
+                            'q6_detalle': row.get('q6_detalle', ''),
+                            'q7': not pd.isna(row.get('q7')) and bool(row.get('q7', False)), # Check for NaN first
+                            'q7_detalle': row.get('q7_detalle', ''),
+                            'q8': not pd.isna(row.get('q8')) and bool(row.get('q8', False)), # Apply fix here
+                            'q9': not pd.isna(row.get('q9')) and bool(row.get('q9', False)), # Apply fix here
+                            'q10': not pd.isna(row.get('q10')) and bool(row.get('q10', False)), # Check for NaN first
+                            'q10_detalle': row.get('q10_detalle', ''),
+                            'q11': not pd.isna(row.get('q11')) and bool(row.get('q11', False)), # Check for NaN first
+                            'q11_detalle': row.get('q11_detalle', '')
                         }
                     )
 
@@ -1042,6 +1046,10 @@ def person_list(request):
         order_by = f'-{order_by}'
     persons = persons.order_by(order_by)
 
+    # Convert names to title case for display
+    for person in persons:
+        person.nombre_completo = person.nombre_completo.title()
+
     cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
 
@@ -1167,56 +1175,6 @@ def conflict_list(request):
     }
 
     return render(request, 'conflicts.html', context)
-
-@login_required
-def conflicts_missing_details_list(request):
-    """
-    View to display conflicts where a 'Yes' answer to a question (q1-q7, q10, q11)
-    is not accompanied by a corresponding detail.
-    """
-    order_by = request.GET.get('order_by', 'person__nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-
-    # Define the conditions for conflicts with missing details
-    # Q(qX=True) & (Q(qX_detalle__isnull=True) | Q(qX_detalle=''))
-    missing_details_filter = (
-        (Q(q1=True) & (Q(q1_detalle__isnull=True) | Q(q1_detalle__exact=''))) |
-        (Q(q2=True) & (Q(q2_detalle__isnull=True) | Q(q2_detalle__exact=''))) |
-        (Q(q3=True) & (Q(q3_detalle__isnull=True) | Q(q3_detalle__exact=''))) |
-        (Q(q4=True) & (Q(q4_detalle__isnull=True) | Q(q4_detalle__exact=''))) |
-        (Q(q5=True) & (Q(q5_detalle__isnull=True) | Q(q5_detalle__exact=''))) |
-        (Q(q6=True) & (Q(q6_detalle__isnull=True) | Q(q6_detalle__exact=''))) |
-        (Q(q7=True) & (Q(q7_detalle__isnull=True) | Q(q7_detalle__exact=''))) |
-        (Q(q10=True) & (Q(q10_detalle__isnull=True) | Q(q10_detalle__exact=''))) |
-        (Q(q11=True) & (Q(q11_detalle__isnull=True) | Q(q11_detalle__exact='')))
-    )
-
-    conflicts = Conflict.objects.select_related('person').filter(missing_details_filter)
-
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    conflicts = conflicts.order_by(order_by)
-
-    # Re-use the existing context structure for consistency
-    paginator = Paginator(conflicts, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
-    context = {
-        'conflicts': page_obj,
-        'page_obj': page_obj,
-        # No need for companias, column, answer filters in this specific view,
-        # but keep all_params for pagination sorting to work generally.
-        'companias': [], # Or fetch if needed for the layout (e.g., in the search form, which won't be used here directly)
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-        'missing_details_view': True, # Add a flag to indicate this is the missing details view
-    }
-
-    # Render conflicts.html, as the structure is very similar
-    return render(request, 'conflicts.html', context)
-
 
 @login_required
 def financial_report_list(request):
@@ -1559,7 +1517,7 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
         # Column selection (first 11 + specified extras)
         base_cols = list(range(11))  # Columns 0-10 (A-K)
         # Add the new detail columns
-        extra_cols = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29] # Updated extra_cols to include details
+        extra_cols = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
         selected_cols = [col for col in base_cols + extra_cols if col < df.shape[1]]
 
         # Extract data with headers
@@ -1572,10 +1530,29 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
                 raise ValueError(f"Custom headers count ({len(custom_headers)}) doesn't match column count ({len(result.columns)})")
             result.columns = custom_headers
 
-        # Merge C,D,E,F → C (indices 2,3,4,5)
-        if all(c in selected_cols for c in [2,3,4,5]):
+        # Get the original column names from the 3rd row of the input file
+        original_col_names = df.iloc[2, :].tolist()
+     
+        # Get the raw data for concatenation (from the original df, rows 3 onwards)
+        primer_nombre_col_idx = 3 # This corresponds to column D in input file
+        primer_apellido_col_idx = 4 # This corresponds to column E in input file
+        segundo_apellido_col_idx = 5 # This corresponds to column F in input file
+
+        # Ensure these columns exist in the original dataframe
+        if primer_nombre_col_idx < df.shape[1] and primer_apellido_col_idx < df.shape[1] and segundo_apellido_col_idx < df.shape[1]:
+
+            # Create a temporary DataFrame to hold the raw content of C, D, E, F
+            temp_df_for_name = df.iloc[3:, [2, 3, 4, 5]].copy()
             
-            pass # The "Nombre" processing below should handle the merging effectively.
+            # Fill NA/NaN values with empty strings to allow proper concatenation
+            temp_df_for_name = temp_df_for_name.fillna('')
+
+            # Concatenate the columns with a space in between
+            # Use .astype(str) to ensure all elements are strings before joining
+            result["Nombre"] = temp_df_for_name.iloc[:, 0].astype(str) + " " + \
+                                temp_df_for_name.iloc[:, 1].astype(str) + " " + \
+                                temp_df_for_name.iloc[:, 2].astype(str) + " " + \
+                                temp_df_for_name.iloc[:, 3].astype(str)
 
         # Process "Nombre" column AFTER merging (if it was a merge)
         if "Nombre" in result.columns:
@@ -1587,6 +1564,9 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
             result["Nombre"] = result["Nombre"].str.replace(r'\s+', ' ', regex=True).str.strip()
             # Finally apply title case
             result["Nombre"] = result["Nombre"].str.title()
+
+        # <--- ADD THIS LINE TO REPLACE EMPTY STRINGS WITH pd.NA (NaN) --->
+        result.replace('', pd.NA, inplace=True)
 
         # Special handling for Column J (input index 9), which becomes 'Fecha de Inicio' in custom headers
         if "Fecha de Inicio" in result.columns:
@@ -1626,10 +1606,67 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
             print("Warning: 'Fecha de Inicio' column not found in processed data")
             # If 'Fecha de Inicio' is not present, save the file without date formatting
             result.to_excel(output_file, index=False)
-
+            
+        return result # Return the processed dataframe
 
     except Exception as e:
         print(f"Error: {str(e)}")
+        return pd.DataFrame() # Return empty DataFrame on error
+
+def generate_justrue_file(input_df, output_file):
+    try:
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Initialize an empty DataFrame for jusTrue.xlsx
+        justrue_data = pd.DataFrame()
+        
+        # Ensure 'Cedula' column exists
+        if 'Cedula' in input_df.columns:
+            justrue_data['Cedula'] = input_df['Cedula']
+        else:
+            print("Error: 'Cedula' column not found in the input DataFrame.")
+            return
+
+        # Define the Q columns to check for "true"
+        q_columns = [f"Q{i}" for i in range(1, 8)] + [f"Q{i}" for i in range(10, 12)]
+
+        # Iterate through Q columns and add to jusTrue_data if condition is met
+        for q_col in q_columns:
+            if q_col in input_df.columns:
+                # and ensure the value is a string before calling .str.lower()
+                true_rows = input_df[input_df[q_col].astype(str).str.lower() == 'true']
+                
+                # Create a new column in justrue_data, initializing with pandas NA (NaN)
+                justrue_data[q_col] = pd.NA 
+                # Assign 'true' to rows where the condition is met, keeping alignment by index
+                if not true_rows.empty:
+                    justrue_data.loc[true_rows.index, q_col] = 'true'
+            else:
+                print(f"Warning: Column '{q_col}' not found in the input DataFrame.")
+
+        # These correspond to Q1 through Q7 in your current justrue_data setup
+        cols_to_check = [f"Q{i}" for i in range(1, 8)] 
+        
+        # Drop rows where all cols_to_check are NA (NaN)
+        justrue_data.dropna(subset=cols_to_check, how='all', inplace=True)
+
+        # Save the jusTrue_data to an Excel file
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            justrue_data.to_excel(writer, index=False)
+
+            # Auto-adjust columns
+            worksheet = writer.sheets['Sheet1']
+            for idx, col in enumerate(justrue_data.columns):
+                col_letter = get_column_letter(idx + 1)
+                worksheet.column_dimensions[col_letter].width = max(
+                    len(str(col)) + 2,
+                    (justrue_data[col].astype(str).str.len().max() or 0) + 2
+                )
+
+        print(f"Successfully created '{output_file}' with filtered data.")
+
+    except Exception as e:
+        print(f"Error creating jusTrue file: {str(e)}")
 
 # Updated custom_headers to include the new detail fields
 custom_headers = [
@@ -1640,11 +1677,19 @@ custom_headers = [
     "Q7", "Q7 Detalle", "Q8", "Q9", "Q10", "Q10 Detalle", "Q11", "Q11 Detalle"
 ]
 
-extract_specific_columns(
+# First, extract and process the main conflicts.xlsx file
+processed_df = extract_specific_columns(
     input_file="core/src/conflictos.xlsx",
     output_file="core/src/conflicts.xlsx",
     custom_headers=custom_headers
 )
+
+# Then, if the processing was successful, generate the jusTrue.xlsx file
+if not processed_df.empty:
+    generate_justrue_file(
+        input_df=processed_df,
+        output_file="core/src/jusTrue.xlsx"
+    )
 "@
 
 # Create cats.py
@@ -4209,19 +4254,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </span>
                 {% if request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                 {% endif %}
-
-                {# New button for conflicts with missing details #}
-                {% if not missing_details_view %}
-                    <a href="{% url 'conflicts_missing_details_list' %}" class="btn btn-warning btn-sm ms-auto">
-                        <i class="fas fa-exclamation-triangle"></i> Conflictos sin Detalle
-                    </a>
-                {% else %}
-                    {# Button to go back to all conflicts #}
-                    <a href="{% url 'conflict_list' %}" class="btn btn-primary btn-sm ms-auto">
-                        <i class="fas fa-list"></i> Ver Todos los Conflictos
-                    </a>
-                {% endif %}
             </div>
+
             <div class="col-md-4">
                 <input type="text"
                        name="q"
@@ -4295,6 +4329,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             </a>
                         </th>
                         <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_inicio&sort_direction={% if current_order == 'fecha_inicio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ano
+                            </a>
+                        </th>
+                        <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q1&sort_direction={% if current_order == 'q1' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Accionista de proveedor
                             </a>
@@ -4363,6 +4402,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </td>
                             <td>{{ conflict.person.nombre_completo }}</td>
                             <td>{{ conflict.person.compania }}</td>
+                            <td>{% if conflict.fecha_inicio %}{{ conflict.fecha_inicio.year }}{% else %}N/A{% endif %}</td> {# Displaying the year #}
                             <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
                             <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
@@ -4385,9 +4425,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="15" class="text-center py-4">
+                            <td colspan="16" class="text-center py-4"> {# Adjusted colspan to 16 #}
                                 {% if missing_details_view %} {# Conditional message for the new view #}
-                                    No hay conflictos con detalles faltantes para respuestas "Sí".
+                                    No hay conflictos con detalles faltantes para respuestas "SÃ­".
                                 {% elif request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
