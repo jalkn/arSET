@@ -2522,15 +2522,15 @@ def calculate_debt_level(df):
 def process_asset_data(df_assets):
     """Process asset data with variations and trends."""
     df_assets_grouped = df_assets.groupby(['Usuario', 'Año Declaración']).agg(
-        BancoSaldo=('Banco - Saldo COP', 'sum'),
+        Banco_Saldo=('Banco - Saldo COP', 'sum'),
         Bienes=('Total Bienes', 'sum'),
         Inversiones=('Total Inversiones', 'sum')
     ).reset_index()
 
-    for column in ['BancoSaldo', 'Bienes', 'Inversiones']:
+    for column in ['Banco_Saldo', 'Bienes', 'Inversiones']:
         df_assets_grouped = calculate_variation(df_assets_grouped, column)
     
-    df_assets_grouped = embed_trend_symbols(df_assets_grouped, ['BancoSaldo', 'Bienes', 'Inversiones'])
+    df_assets_grouped = embed_trend_symbols(df_assets_grouped, ['Banco_Saldo', 'Bienes', 'Inversiones'])
     return df_assets_grouped
 
 def process_income_data(df_income):
@@ -2551,7 +2551,7 @@ def calculate_yearly_variations(df):
     columns_to_analyze = [
         'Activos', 'Pasivos', 'Patrimonio', 
         'Apalancamiento', 'Endeudamiento',
-        'BancoSaldo', 'Bienes', 'Inversiones', 'Ingresos',
+        'Banco_Saldo', 'Bienes', 'Inversiones', 'Ingresos',
         'Cant_Ingresos'
     ]
     
@@ -2724,6 +2724,16 @@ def clean_and_convert(value, keep_trend=False):
         except:
             return None
 
+def remove_trend_symbol(value):
+    """Remove the trend symbol from a string value."""
+    if pd.isna(value):
+        return value
+    str_value = str(value)
+    # Remove any known trend symbols
+    cleaned_value = str_value.replace("📈", "").replace("📉", "").replace("➡️", "").strip()
+    return cleaned_value
+
+
 # Read the Excel file
 file_path_trends = 'core/src/trends.xlsx'
 df_trends = pd.read_excel(file_path_trends)
@@ -2737,8 +2747,8 @@ required_columns = [
     'Activos Var. Rel.', 'Pasivos Var. Abs.', 'Pasivos Var. Rel.', 
     'Patrimonio Var. Abs.', 'Patrimonio Var. Rel.', 'Apalancamiento Var. Abs.', 
     'Apalancamiento Var. Rel.', 'Endeudamiento Var. Abs.', 'Endeudamiento Var. Rel.', 
-    'BancoSaldo', 'Bienes', 'Inversiones', 'BancoSaldo Var. Abs.', 
-    'BancoSaldo Var. Rel.', 'Bienes Var. Abs.', 'Bienes Var. Rel.', 
+    'Banco_Saldo', 'Bienes', 'Inversiones', 'Banco_Saldo Var. Abs.', 
+    'Banco_Saldo Var. Rel.', 'Bienes Var. Abs.', 'Bienes Var. Rel.', 
     'Inversiones Var. Abs.', 'Inversiones Var. Rel.', 'Ingresos', 
     'Cant_Ingresos', 'Ingresos Var. Abs.', 'Ingresos Var. Rel.'
 ]
@@ -2755,7 +2765,7 @@ float_columns = [
     'Patrimonio Var. Abs.', 
     'Apalancamiento Var. Abs.', 
     'Endeudamiento Var. Abs.',  
-    'BancoSaldo Var. Abs.', 
+    'Banco_Saldo Var. Abs.', 
     'Bienes Var. Abs.', 
     'Inversiones Var. Abs.', 
     'Ingresos Var. Abs.'
@@ -2770,7 +2780,7 @@ trend_columns = [
     'Patrimonio Var. Rel.', 
     'Apalancamiento Var. Rel.', 
     'Endeudamiento Var. Rel.', 
-    'BancoSaldo Var. Rel.', 
+    'Banco_Saldo Var. Rel.', 
     'Bienes Var. Rel.', 
     'Inversiones Var. Rel.', 
     'Ingresos Var. Rel.'
@@ -2834,11 +2844,37 @@ final_column_order = desired_start_columns + remaining_columns
 # Reindex the DataFrame with the new column order
 df_merged = df_merged[final_column_order]
 
-# Save the modified and merged dataframe back to Excel
-output_path = 'core/src/idTrends.xlsx'
-df_merged.to_excel(output_path, index=False)
+# Save the modified and merged dataframe back to Excel (idTrends.xlsx)
+output_path_idtrends = 'core/src/trendSym.xlsx'
+df_merged.to_excel(output_path_idtrends, index=False)
+print(f"File has been modified and saved as {output_path_idtrends}")
 
-print(f"File has been modified and saved as {output_path}")
+# --- New section for idTrends.xlsx (without trend symbols) ---
+df_idTrends = df_merged.copy() # Create a copy to modify without affecting trendSym.xlsx
+
+# List of columns from which to remove trend symbols (these are the 'Rel.' columns and Apalancamiento/Endeudamiento)
+columns_to_clean_symbols = [
+    'Apalancamiento', 
+    'Endeudamiento', 
+    'Activos Var. Rel.', 
+    'Pasivos Var. Rel.', 
+    'Patrimonio Var. Rel.', 
+    'Apalancamiento Var. Rel.', 
+    'Endeudamiento Var. Rel.', 
+    'Banco_Saldo Var. Rel.', 
+    'Bienes Var. Rel.', 
+    'Inversiones Var. Rel.', 
+    'Ingresos Var. Rel.'
+]
+
+for col in columns_to_clean_symbols:
+    if col in df_idTrends.columns:
+        df_idTrends[col] = df_idTrends[col].apply(remove_trend_symbol)
+
+# Save the dataframe without trend symbols to idTrends.xlsx
+output_path_idtrends = 'core/src/idTrends.xlsx'
+df_idTrends.to_excel(output_path_idtrends, index=False)
+print(f"File without trend symbols has been saved as {output_path_idtrends}")
 "@
 
 # Create tcs.py
@@ -3288,21 +3324,24 @@ body {
     max-height: calc(100vh - 300px); /* Adjust this value as needed */
 }
 
+/* Make the entire table header sticky */
 .table-fixed-header {
     position: sticky;
     top: 0;
-    z-index: 10;
-    background-color: white;
+    z-index: 10; /* Ensure it stays above the table body */
+    background-color: white; /* Fallback background for the header area */
 }
 
+/* Apply styles to header cells, but remove individual sticky positioning */
 .table-fixed-header th {
-    position: sticky;
-    top: 0;
     background-color: #f8f9fa; /* Match your table header color */
-    z-index: 20;
+    /* Remove sticky positioning from individual th elements */
+    /* position: sticky; */
+    /* top: 0; */
+    /* z-index: 20; */
 }
 
-/* Add a shadow to the fixed header */
+/* Add a shadow to the fixed header for visual separation */
 .table-fixed-header::after {
     content: '';
     position: absolute;
@@ -3331,6 +3370,25 @@ body {
     background: linear-gradient(to right, transparent, rgba(0,0,0,0.1));
 }
 
+/* New styles for dynamically frozen columns */
+.table-frozen-column {
+    position: sticky;
+    background-color: white; /* Ensure background is solid when frozen */
+    z-index: 6; /* Higher than regular cells but lower than fixed-right column if any */
+}
+
+.table-frozen-column::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -5px; /* Adjust if shadow is desired on the right */
+    width: 5px;
+    height: 100%;
+    background: linear-gradient(to left, rgba(0,0,0,0.1), transparent);
+    pointer-events: none; /* Allows clicks on elements behind the shadow */
+}
+
+
 /* Adjust the z-index for header cells to stay above fixed column */
 .table-fixed-header th:last-child {
     z-index: 30;
@@ -3344,6 +3402,17 @@ body {
 /* Table hover effects */
 .table-hover tbody tr:hover {
     background-color: rgba(11, 0, 162, 0.05);
+}
+
+/* Style for the freeze button to align it nicely */
+.freeze-column-btn {
+    margin-right: 5px; /* Space between button and text */
+    opacity: 0.5; /* Make it subtle when not active */
+}
+
+.freeze-column-btn:hover,
+.freeze-column-btn.active {
+    opacity: 1; /* More visible when hovered or active */
 }
 "@ | Out-File -FilePath "core/static/css/freeze.css" -Encoding utf8
 
@@ -3408,6 +3477,195 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 "@ | Out-File -FilePath "core/static/js/loading.js" -Encoding utf8
+
+# Create finances.js
+@"
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.querySelector('.table-striped');
+
+    // Function to determine the trend symbol based on the percentage change
+    const getTrendSymbol = (value) => {
+        try {
+            // Remove '%' and replace comma with dot for proper float parsing
+            const cleanedValue = value.replace('%', '').replace(',', '.').trim();
+            const valueFloat = parseFloat(cleanedValue) / 100;
+
+            if (isNaN(valueFloat)) { // Check for NaN after parseFloat
+                return "➡️";
+            } else if (valueFloat > 0.1) { // more than 10% increase
+                return "📈";
+            } else if (valueFloat < -0.1) { // more than 10% decrease
+                return "📉";
+            } else {
+                return "➡️"; // relatively stable
+            }
+        } catch (e) {
+            return "➡️";
+        }
+    };
+
+    if (table) {
+        table.querySelectorAll('tbody tr').forEach(row => {
+            // Function to apply styling based on value
+            const applyConditionalColor = (cell, numericValue) => {
+                // Reset color first to clear previous states
+                cell.style.color = ''; // Resets to default/inherited color
+
+                if (numericValue !== null && !isNaN(numericValue)) {
+                    if (numericValue < -50 || numericValue > 50) {
+                        cell.style.color = 'red';
+                    } else if (numericValue > 30 || numericValue < -30) {
+                        cell.style.color = 'green';
+                    }
+                }
+            };
+
+            // Function to get and parse value from a cell
+            const parseCellValue = (cell) => {
+                if (!cell) return null;
+
+                let valueText = cell.textContent.trim();
+                if (valueText === '-' || valueText === '') {
+                    return null;
+                } else {
+                    valueText = valueText.replace('%', '').replace(',', '.');
+                    return parseFloat(valueText);
+                }
+            };
+
+            // --- Patrimonio Var. Rel. % (index 9) ---
+            const patrimonioVarRelCell = row.children[9];
+            const numericValuePatrimonio = parseCellValue(patrimonioVarRelCell);
+            applyConditionalColor(patrimonioVarRelCell, numericValuePatrimonio);
+            patrimonioVarRelCell.textContent += ' ' + getTrendSymbol(patrimonioVarRelCell.textContent); // Add trend symbol
+
+            // --- Activos Var. Rel. % (index 12) ---
+            const activosVarRelCell = row.children[12];
+            const numericValueActivos = parseCellValue(activosVarRelCell);
+            applyConditionalColor(activosVarRelCell, numericValueActivos);
+            activosVarRelCell.textContent += ' ' + getTrendSymbol(activosVarRelCell.textContent); // Add trend symbol
+
+            // --- Pasivos Var. Rel. % (index 15) ---
+            const pasivosVarRelCell = row.children[15];
+            const numericValuePasivos = parseCellValue(pasivosVarRelCell);
+            applyConditionalColor(pasivosVarRelCell, numericValuePasivos);
+            pasivosVarRelCell.textContent += ' ' + getTrendSymbol(pasivosVarRelCell.textContent); // Add trend symbol
+
+            // --- Aum. Pat. Subito (index 7) ---
+            const aumPatSubitoCell = row.children[7];
+            const numericValueAumPatSubito = parseCellValue(aumPatSubitoCell);
+
+            if (numericValueAumPatSubito !== null && !isNaN(numericValueAumPatSubito)) {
+                if (numericValueAumPatSubito > 2) {
+                    aumPatSubitoCell.style.color = 'red';
+                } else if (numericValueAumPatSubito > 1.5) {
+                    aumPatSubitoCell.style.color = 'green';
+                } else {
+                    aumPatSubitoCell.style.color = ''; // Reset to default if neither condition is met
+                }
+            }
+
+            // --- Cant. Deudas (index 17) ---
+            const cantDeudasCell = row.children[17];
+            const numericValueCantDeudas = parseCellValue(cantDeudasCell);
+
+            if (numericValueCantDeudas !== null && !isNaN(numericValueCantDeudas)) {
+                if (numericValueCantDeudas > 6) {
+                    cantDeudasCell.style.color = 'red';
+                } else if (numericValueCantDeudas > 4) {
+                    cantDeudasCell.style.color = 'green';
+                } else {
+                    cantDeudasCell.style.color = '';
+                }
+            }
+
+            // --- Cant. Cuentas (index 25) ---
+            const cantCuentasCell = row.children[25];
+            const numericValueCantCuentas = parseCellValue(cantCuentasCell);
+
+            if (numericValueCantCuentas !== null && !isNaN(numericValueCantCuentas)) {
+                if (numericValueCantCuentas > 6) {
+                    cantCuentasCell.style.color = 'red';
+                } else if (numericValueCantCuentas > 4) {
+                    cantCuentasCell.style.color = 'green';
+                } else {
+                    cantCuentasCell.style.color = '';
+                }
+            }
+        });
+    }
+});
+"@ | Out-File -FilePath "core/static/js/finances.js" -Encoding utf8
+
+$jsContent = @"
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.querySelector('.table');
+    if (!table) return;
+
+    const freezeButtons = document.querySelectorAll('.freeze-column-btn');
+    let frozenColumns = JSON.parse(localStorage.getItem('frozenColumns')) || [];
+
+    function applyFrozenColumns() {
+        // Clear any existing frozen classes and inline styles
+        document.querySelectorAll('.table-frozen-column').forEach(el => {
+            el.classList.remove('table-frozen-column');
+            el.style.left = ''; // Clear inline style
+        });
+        document.querySelectorAll('.freeze-column-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+
+        let currentLeft = 0;
+        frozenColumns.forEach(colIndex => {
+            const cellsInColumn = table.querySelectorAll(``td:nth-child(`$`{colIndex + 1}), th:nth-child(`$`{colIndex + 1})``);
+            cellsInColumn.forEach(cell => {
+                cell.classList.add('table-frozen-column');
+                cell.style.left = ``$`{currentLeft}px``;
+            });
+
+            // Mark the corresponding freeze button as active
+            const button = document.querySelector(``.freeze-column-btn[data-column-index="`$`{colIndex}"]``);
+            if (button) {
+                button.classList.add('active');
+            }
+
+            // Calculate the width of the frozen column to offset the next one
+            // This is a simplified approach, in a real complex table with variable widths,
+            // you might need a more robust calculation or a library.
+            const headerCell = table.querySelector(``th:nth-child(`$`{colIndex + 1})``);
+            if (headerCell) {
+                currentLeft += headerCell.offsetWidth;
+            }
+        });
+    }
+
+    freezeButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const columnIndex = parseInt(this.dataset.columnIndex);
+            const indexInFrozen = frozenColumns.indexOf(columnIndex);
+
+            if (indexInFrozen > -1) {
+                // Column is already frozen, unfreeze it
+                frozenColumns.splice(indexInFrozen, 1);
+            } else {
+                // Column is not frozen, freeze it
+                frozenColumns.push(columnIndex);
+                frozenColumns.sort((a, b) => a - b); // Keep columns ordered by index
+            }
+
+            localStorage.setItem('frozenColumns', JSON.stringify(frozenColumns));
+            applyFrozenColumns();
+        });
+    });
+
+    // Apply frozen columns on initial load
+    applyFrozenColumns();
+
+    // Re-apply frozen columns on window resize to adjust 'left' positions
+    window.addEventListener('resize', applyFrozenColumns);
+});
+"@
+$jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf8
 
 # Create custom admin base template
 @"
@@ -3476,6 +3734,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{% static 'js/freeze_columns.js' %}"></script>
 </body>
 </html>
 "@ | Out-File -FilePath "core/templates/master.html" -Encoding utf8
@@ -4770,6 +5029,7 @@ document.addEventListener('DOMContentLoaded', function() {
 @" 
 {% extends "master.html" %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Bienes y Rentas{% endblock %}
 {% block navbar_title %}Bienes y Rentas{% endblock %}
@@ -4810,10 +5070,10 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 
 {% block content %}
-<!-- Search Form -->
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
+
             <div class="d-flex align-items-center">
                 <span class="badge bg-success">
                     {{ page_obj.paginator.count }} registros
@@ -4821,36 +5081,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 {% if request.GET.q or request.GET.compania or request.GET.ano_declaracion %}
                 {% endif %}
             </div>
-            <!-- General Search -->
-            <div class="col-md-4">
+            
+            <div class="col-md-3">
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
-                       placeholder="Buscar persona o cedula..." 
+                       placeholder="Buscar persona..." 
                        value="{{ request.GET.q }}">
             </div>
             
-            <!-- Compania Filter -->
             <div class="col-md-3">
-                <select name="compania" class="form-select form-select-lg">
-                    <option value="">Compania</option>
-                    {% for compania in companias %}
-                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <!-- Año Declaración Filter -->
-            <div class="col-md-3">
-                <select name="ano_declaracion" class="form-select form-select-lg">
-                    <option value="">Ano Declaracion</option>
-                    {% for ano in anos_declaracion %}
-                        <option value="{{ ano }}" {% if request.GET.ano_declaracion|stringformat:"s" == ano|stringformat:"s" %}selected{% endif %}>{{ ano }}</option>
-                    {% endfor %}
+                <select name="column" class="form-select form-select-lg">
+                    <option value="">Selecciona Columna</option>
+                    <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
+                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aum. Pat. Subito</option>
+                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Rel.</option>
+                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Rel.</option>
+                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Rel.</option>
+                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Rel.</option>
+                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Rel.</option>
+                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>Banco_Saldo Var. Rel.</option>
+                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Rel.</option>
+                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Rel.</option>
                 </select>
             </div>
             
-            <!-- Submit Buttons -->
+            <div class="col-md-2">
+                <select name="operator" class="form-select form-select-lg">
+                    <option value="">Selecciona operador</option>
+                    <option value=">" {% if request.GET.operator == '>' %}selected{% endif %}>Mayor que</option>
+                    <option value="<" {% if request.GET.operator == '<' %}selected{% endif %}>Menor que</option>
+                    <option value="=" {% if request.GET.operator == '=' %}selected{% endif %}>Igual a</option>
+                    <option value=">=" {% if request.GET.operator == '>=' %}selected{% endif %}>Mayor o igual</option>
+                    <option value="<=" {% if request.GET.operator == '<=' %}selected{% endif %}>Menor o igual</option>
+                    <option value="between" {% if request.GET.operator == 'between' %}selected{% endif %}>Entre</option>
+                    <option value="contains" {% if request.GET.operator == 'contains' %}selected{% endif %}>Contiene</option>
+                </select>
+            </div>
+            
+            <div class="col-md-2">
+                <input type="text" 
+                       name="value" 
+                       class="form-control form-control-lg" 
+                       placeholder="Valor" 
+                       value="{{ request.GET.value }}">
+            </div>
+            
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
@@ -4859,103 +5135,491 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- Financial Reports Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
             <table class="table table-striped table-hover mb-0">
                 <thead class="table-fixed-header">
                     <tr>
-                        <th>
+                        <th data-column-index="0"></th>
+                        <th data-column-index="1"></th>
+                        <th data-column-index="2"></th>
+                        <th data-column-index="3"></th>
+                        <th data-column-index="4"></th>
+                        <th data-column-index="5"></th>
+                        <th data-column-index="6"></th>
+                        <th data-column-index="7"></th>
+                        <th data-column-index="8"></th>
+                        <th style="background-color: red; color: white;" data-column-index="9">-50%</th>
+                        <th data-column-index="10"></th>
+                        <th data-column-index="11"></th>
+                        <th style="background-color: red; color: white;" data-column-index="12">-50%</th>
+                        <th data-column-index="13"></th>
+                        <th data-column-index="14"></th>
+                        <th style="background-color: red; color: white;" data-column-index="15">-50%</th>
+                        <th data-column-index="16"></th>
+                        <th data-column-index="17"></th>
+                        <th data-column-index="18"></th>
+                        <th data-column-index="19"></th>
+                        <th data-column-index="20"></th>
+                        <th data-column-index="21"></th>
+                        <th data-column-index="22"></th>
+                        <th data-column-index="23"></th>
+                        <th data-column-index="24"></th>
+                        <th data-column-index="25"></th>
+                        <th data-column-index="26"></th>
+                        <th data-column-index="27"></th>
+                        <th data-column-index="28"></th>
+                        <th data-column-index="29"></th>
+                        <th data-column-index="30"></th>
+                        <th data-column-index="31"></th>
+                        <th data-column-index="32"></th>
+                        <th data-column-index="33"></th>
+                        <th data-column-index="34"></th>
+                        <th class="table-fixed-column" data-column-index="35"></th>
+                    </tr>
+                    <tr>
+                        <th data-column-index="0"></th>
+                        <th data-column-index="1"></th>
+                        <th data-column-index="2"></th>
+                        <th data-column-index="3"></th>
+                        <th data-column-index="4"></th>
+                        <th data-column-index="5"></th>
+                        <th data-column-index="6"></th>
+                        <th data-column-index="7"></th>
+                        <th data-column-index="8"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="9">-30%</th>
+                        <th data-column-index="10"></th>
+                        <th data-column-index="11"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="12">-30%</th>
+                        <th data-column-index="13"></th>
+                        <th data-column-index="14"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="15">-30%</th>
+                        <th data-column-index="16"></th>
+                        <th data-column-index="17"></th>
+                        <th data-column-index="18"></th>
+                        <th data-column-index="19"></th>
+                        <th data-column-index="20"></th>
+                        <th data-column-index="21"></th>
+                        <th data-column-index="22"></th>
+                        <th data-column-index="23"></th>
+                        <th data-column-index="24"></th>
+                        <th data-column-index="25"></th>
+                        <th data-column-index="26"></th>
+                        <th data-column-index="27"></th>
+                        <th data-column-index="28"></th>
+                        <th data-column-index="29"></th>
+                        <th data-column-index="30"></th>
+                        <th data-column-index="31"></th>
+                        <th data-column-index="32"></th>
+                        <th data-column-index="33"></th>
+                        <th data-column-index="34"></th>
+                        <th class="table-fixed-column" data-column-index="35"></th>
+                    </tr>
+                    <tr>
+                        <th data-column-index="0"></th>
+                        <th data-column-index="1"></th>
+                        <th data-column-index="2"></th>
+                        <th data-column-index="3">Medio</th>
+                        <th data-column-index="4">"<="</th>
+                        <th style="background-color: #228B22; " data-column-index="5"></th>
+                        <th data-column-index="6"></th>
+                        <th style="background-color: #228B22;  color: white;" data-column-index="7">1.5</th>
+                        <th data-column-index="8"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="9">30%</th>
+                        <th data-column-index="10"></th>
+                        <th data-column-index="11"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="12">30%</th>
+                        <th data-column-index="13"></th>
+                        <th data-column-index="14"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="15">30%</th>
+                        <th data-column-index="16"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="17">4</th>
+                        <th data-column-index="18"></th>
+                        <th data-column-index="19"></th>
+                        <th data-column-index="20"></th>
+                        <th data-column-index="21"></th>
+                        <th data-column-index="22"></th>
+                        <th data-column-index="23"></th>
+                        <th data-column-index="24"></th>
+                        <th style="background-color: #228B22; color: white;" data-column-index="25">4</th>
+                        <th data-column-index="26"></th>
+                        <th data-column-index="27"></th>
+                        <th data-column-index="28"></th>
+                        <th data-column-index="29"></th>
+                        <th data-column-index="30"></th>
+                        <th data-column-index="31"></th>
+                        <th data-column-index="32"></th>
+                        <th data-column-index="33"></th>
+                        <th data-column-index="34"></th>
+                        <th class="table-fixed-column" data-column-index="35"></th>
+                    </tr>
+                    <tr>
+                        <th data-column-index="0"></th>
+                        <th data-column-index="1"></th>
+                        <th data-column-index="2"></th>
+                        <th data-column-index="3">Alto</th>
+                        <th data-column-index="4">"<"</th>
+                        <th style="background-color: red;" data-column-index="5"></th>
+                        <th data-column-index="6"></th>
+                        <th style="background-color: red; color: white;" data-column-index="7">2</th>
+                        <th data-column-index="8"></th>
+                        <th style="background-color: red; color: white;" data-column-index="9">50%</th>
+                        <th data-column-index="10"></th>
+                        <th data-column-index="11"></th>
+                        <th style="background-color: red; color: white;" data-column-index="12">50%</th>
+                        <th data-column-index="13"></th>
+                        <th data-column-index="14"></th>
+                        <th style="background-color: red; color: white;" data-column-index="15">50%</th>
+                        <th data-column-index="16"></th>
+                        <th style="background-color: red; color: white;" data-column-index="17">6</th>
+                        <th data-column-index="18"></th>
+                        <th data-column-index="19"></th>
+                        <th data-column-index="20"></th>
+                        <th data-column-index="21"></th>
+                        <th data-column-index="22"></th>
+                        <th data-column-index="23"></th>
+                        <th data-column-index="24"></th>
+                        <th style="background-color: red; color: white;" data-column-index="25">6</th>
+                        <th data-column-index="26"></th>
+                        <th data-column-index="27"></th>
+                        <th data-column-index="28"></th>
+                        <th data-column-index="29"></th>
+                        <th data-column-index="30"></th>
+                        <th data-column-index="31"></th>
+                        <th data-column-index="32"></th>
+                        <th data-column-index="33"></th>
+                        <th data-column-index="34"></th>
+                        <th class="table-fixed-column" data-column-index="35"></th>
+                    </tr>
+                    <tr>
+                        <th data-column-index="0">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="0" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__revisar&sort_direction={% if current_order == 'person__revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Revisar
+                            </a>
+                        </th>
+                        <th data-column-index="1">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="1" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Persona
+                                Nombre
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cedula&sort_direction={% if current_order == 'person__cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cedula
+                        <th data-column-index="2">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="2" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__compania&sort_direction={% if current_order == 'person__compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compania
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ano_declaracion&sort_direction={% if current_order == 'ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Ano
+                        <th data-column-index="3">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="3" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cargo&sort_direction={% if current_order == 'person__cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargo
                             </a>
                         </th>
-                        <th>
+                        <th style="color: rgb(0, 0, 0);" data-column-index="4">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="4" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            Comentarios
+                        </th>
+                        <th data-column-index="5">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="5" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fk_id_periodo&sort_direction={% if current_order == 'fk_id_periodo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Periodo
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos&sort_direction={% if current_order == 'activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Activos
+                        <th data-column-index="6">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="6" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ano_declaracion&sort_direction={% if current_order == 'ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ano
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos&sort_direction={% if current_order == 'pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Pasivos
+                        <th data-column-index="7">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="7" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=aum_pat_subito&sort_direction={% if current_order == 'aum_pat_subito' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Aum. Pat. Subito
                             </a>
                         </th>
-                        <th>
+                        <th data-column-index="8">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="8" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio&sort_direction={% if current_order == 'patrimonio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Patrimonio
                             </a>
                         </th>
-                        <th>
+                        <th data-column-index="9">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="9" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_rel&sort_direction={% if current_order == 'patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio Var. Rel. % 
+                            </a>
+                        </th>
+                        <th data-column-index="10">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="10" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_abs&sort_direction={% if current_order == 'patrimonio_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Patrimonio Var. Abs. $
+                            </a>
+                        </th>
+                        <th data-column-index="11">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="11" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos&sort_direction={% if current_order == 'activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos
+                            </a>
+                        </th>
+                        <th data-column-index="12">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="12" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_rel&sort_direction={% if current_order == 'activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos Var. Rel. %
+                            </a>
+                        </th>
+                        <th data-column-index="13">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="13" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_abs&sort_direction={% if current_order == 'activos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Activos Var. Abs. $
+                            </a>
+                        </th>
+                        <th data-column-index="14">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="14" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos&sort_direction={% if current_order == 'pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos
+                            </a>
+                        </th>
+                        <th data-column-index="15">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="15" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_rel&sort_direction={% if current_order == 'pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos Var. Rel. %
+                            </a>
+                        </th>
+                        <th data-column-index="16">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="16" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_abs&sort_direction={% if current_order == 'pasivos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Pasivos Var. Abs. $
+                            </a>
+                        </th>
+                        <th data-column-index="17">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="17" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_deudas&sort_direction={% if current_order == 'cant_deudas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Deudas
+                            </a>
+                        </th>
+                        <th data-column-index="18">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="18" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos&sort_direction={% if current_order == 'ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ingresos
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=apalancamiento&sort_direction={% if current_order == 'apalancamiento' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Apalancamiento
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=endeudamiento&sort_direction={% if current_order == 'endeudamiento' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Endeudamiento
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_rel&sort_direction={% if current_order == 'activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Var. Activos (%)
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_rel&sort_direction={% if current_order == 'pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Var. Pasivos (%)
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_rel&sort_direction={% if current_order == 'patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Var. Patrimonio (%)
-                            </a>
-                        </th>
-                        <th>
+                        <th data-column-index="19">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="19" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos_var_rel&sort_direction={% if current_order == 'ingresos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Var. Ingresos (%)
+                                Ingresos Var. Rel. %
                             </a>
                         </th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                        <th data-column-index="20">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="20" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos_var_abs&sort_direction={% if current_order == 'ingresos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Ingresos Var. Abs. $
+                            </a>
+                        </th>
+                        <th data-column-index="21">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="21" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_ingresos&sort_direction={% if current_order == 'cant_ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Ingresos
+                            </a>
+                        </th>
+                        <th data-column-index="22">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="22" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo&sort_direction={% if current_order == 'banco_saldo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Saldo
+                            </a>
+                        </th>
+                        <th data-column-index="23">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="23" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo_var_rel&sort_direction={% if current_order == 'banco_saldo_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Var. %
+                            </a>
+                        </th>
+                        <th data-column-index="24">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="24" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo_var_abs&sort_direction={% if current_order == 'banco_saldo_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bancos Var. $
+                            </a>
+                        </th>
+                        <th data-column-index="25">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="25" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_cuentas&sort_direction={% if current_order == 'cant_cuentas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Cuentas
+                            </a>
+                        </th>
+                        <th data-column-index="26">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="26" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_bancos&sort_direction={% if current_order == 'cant_bancos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Bancos
+                            </a>
+                        </th>
+                        <th data-column-index="27">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="27" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes&sort_direction={% if current_order == 'bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Valor
+                            </a>
+                        </th>
+                        <th data-column-index="28">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="28" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes_var_rel&sort_direction={% if current_order == 'bienes_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Var. %
+                            </a>
+                        </th>
+                        <th data-column-index="29">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="29" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes_var_abs&sort_direction={% if current_order == 'bienes_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Bienes Var. $
+                            </a>
+                        </th>
+                        <th data-column-index="30">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="30" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_bienes&sort_direction={% if current_order == 'cant_bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Bienes
+                            </a>
+                        </th>
+                        <th data-column-index="31">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="31" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones&sort_direction={% if current_order == 'inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Valor
+                            </a>
+                        </th>
+                        <th data-column-index="32">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="32" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones_var_rel&sort_direction={% if current_order == 'inversiones_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Var. %
+                            </a>
+                        </th>
+                        <th data-column-index="33">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="33" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones_var_abs&sort_direction={% if current_order == 'inversiones_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Inversiones Var. $
+                            </a>
+                        </th>
+                        <th data-column-index="34">
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="34" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_inversiones&sort_direction={% if current_order == 'cant_inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cant. Inversiones
+                            </a>
+                        </th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);" data-column-index="35">Ver</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for report in financial_reports %}
-                        <tr>
+                        <tr {% if report.person.revisar %}class="table-warning"{% endif %}>
+                            <td>
+                                <a href="/admin/core/person/{{ report.person.cedula }}/change/" style="text-decoration: none;" title="{% if report.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                    <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                </a>
+                            </td>
                             <td>{{ report.person.nombre_completo }}</td>
-                            <td>{{ report.person.cedula }}</td>
-                            <td>{{ report.ano_declaracion|default:"N/A" }}</td>
-                            <td>{{ report.fk_id_periodo|default:"N/A" }}</td>
-                            <td>{{ report.activos|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ report.pasivos|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ report.patrimonio|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ report.ingresos|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ report.apalancamiento|default:"N/A" }}</td>
-                            <td>{{ report.endeudamiento|default:"N/A" }}</td>
-                            <td>{{ report.activos_var_rel|default:"N/A" }}</td>
-                            <td>{{ report.pasivos_var_rel|default:"N/A" }}</td>
-                            <td>{{ report.patrimonio_var_rel|default:"N/A" }}</td>
-                            <td>{{ report.ingresos_var_rel|default:"N/A" }}</td>
+                            <td>{{ report.person.compania }}</td>
+                            <td>{{ report.person.cargo }}</td>
+                            <td>{{ report.person.comments|truncatechars:30|default:"" }}</td>
+                            <td>{{ report.fk_id_periodo|floatformat:"0"|default:"-" }}</td>
+                            <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
+                            <td>{{ report.aum_pat_subito|default:"0" }}</td>
+                            <td>{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+
+                            <td {% if report.patrimonio_var_rel_numeric is not None and report.patrimonio_var_rel_numeric < -50 or report.patrimonio_var_rel_numeric > 50 %}style="color: red;"{% endif %}>
+                                {{ report.patrimonio_var_rel|default:"0" }}
+                            </td>
+
+                            <td>{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.activos_var_rel|default:"0" }}</td>
+                            <td>{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.pasivos_var_rel|default:"0" }}</td>
+                            <td>{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.ingresos_var_rel|default:"0" }}</td>
+                            <td>{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.banco_saldo_var_rel|default:"0" }}</td>
+                            <td>{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.bienes_var_rel|default:"0" }}</td>
+                            <td>{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.inversiones_var_rel|default:"0" }}</td>
+                            <td>{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td>{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' report.person.cedula %}" 
                                    class="btn btn-custom-primary btn-sm"
@@ -4966,8 +5630,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="15" class="text-center py-4">
-                                {% if request.GET.q or request.GET.compania or request.GET.ano_declaracion %}
+                            <td colspan="36" class="text-center py-4">
+                                {% if request.GET.q or request.GET.column or request.GET.operator or request.GET.value %}
                                     Sin reportes financieros que coincidan con los filtros.
                                 {% else %}
                                     Sin reportes financieros
@@ -4979,7 +5643,6 @@ document.addEventListener('DOMContentLoaded', function() {
             </table>
         </div>
         
-        <!-- Pagination -->
         {% if page_obj.has_other_pages %}
         <div class="p-3">
             <nav aria-label="Page navigation">
@@ -5022,6 +5685,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
         {% endif %}
     </div>
+<script src="{% static 'js/finances.js' %}"></script>
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/finances.html" -Encoding utf8
@@ -5029,6 +5693,7 @@ document.addEventListener('DOMContentLoaded', function() {
 # details template
 @" 
 {% extends "master.html" %}
+{% load static %}
 {% load humanize %}
 
 {% block title %}Detalles - {{ myperson.nombre_completo }}{% endblock %}
@@ -5044,6 +5709,9 @@ document.addEventListener('DOMContentLoaded', function() {
     </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
+    </a>
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+        <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
     <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
@@ -5287,55 +5955,55 @@ document.addEventListener('DOMContentLoaded', function() {
                             <tr>
                                 <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
                                 <th>Relativa</th>
-                                <td>{{ report.activos_var_rel|default:"-" }}</td>
-                                <td>{{ report.pasivos_var_rel|default:"-" }}</td>
-                                <td>{{ report.ingresos_var_rel|default:"-" }}</td>
-                                <td>{{ report.patrimonio_var_rel|default:"-" }}</td>
-                                <td>{{ report.banco_saldo_var_rel|default:"-" }}</td>
-                                <td>{{ report.bienes_var_rel|default:"-" }}</td>
-                                <td>{{ report.inversiones_var_rel|default:"-" }}</td>
-                                <td>{{ report.apalancamiento_var_rel|default:"-" }}</td>
-                                <td>{{ report.endeudamiento_var_rel|default:"-" }}</td>
-                                <td>{{ report.aum_pat_subito|default:"-" }}</td>
+                                <td>{{ report.activos_var_rel|default:"0" }}</td>
+                                <td>{{ report.pasivos_var_rel|default:"0" }}</td>
+                                <td>{{ report.ingresos_var_rel|default:"0" }}</td>
+                                <td>{{ report.patrimonio_var_rel|default:"0" }}</td>
+                                <td>{{ report.banco_saldo_var_rel|default:"0" }}</td>
+                                <td>{{ report.bienes_var_rel|default:"0" }}</td>
+                                <td>{{ report.inversiones_var_rel|default:"0" }}</td>
+                                <td>{{ report.apalancamiento_var_rel|default:"0" }}</td>
+                                <td>{{ report.endeudamiento_var_rel|default:"0" }}</td>
+                                <td>{{ report.aum_pat_subito|default:"0" }}</td>
                             </tr>
                             <tr>
                                 <th></th>
                                 <th scope="col">Absoluta</th>
-                                <td>{{ report.activos_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.pasivos_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.ingresos_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.patrimonio_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.banco_saldo_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.bienes_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.inversiones_var_abs|intcomma|default:"-" }}</td>
-                                <td>{{ report.apalancamiento_var_abs|default:"-" }}</td>
-                                <td>{{ report.endeudamiento_var_abs|default:"-" }}</td>
-                                <td>{{ report.capital_var_abs|intcomma|default:"-" }}</td>
+                                <td>{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.apalancamiento_var_abs|default:"0" }}</td>
+                                <td>{{ report.endeudamiento_var_abs|default:"0" }}</td>
+                                <td>{{ report.capital_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
                             </tr>
                             <tr>
                                 <td></td>
                                 <th scope="col">Total</th>
-                                <td>&#36;{{ report.activos|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.pasivos|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.ingresos|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.patrimonio|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.banco_saldo|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.bienes|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>&#36;{{ report.inversiones|floatformat:2|intcomma|default:"-" }}</td>
-                                <td>{{ report.apalancamiento|floatformat:2|default:"-" }}</td>
-                                <td>{{ report.endeudamiento|floatformat:2|default:"-" }}</td>
-                                <td>&#36;{{ report.capital|floatformat:2|intcomma|default:"-" }}</td>
+                                <td>&#36;{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>&#36;{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.apalancamiento|floatformat:2|default:"0" }}</td>
+                                <td>{{ report.endeudamiento|floatformat:2|default:"0" }}</td>
+                                <td>&#36;{{ report.capital|floatformat:"0"|intcomma|default:"0" }}</td>
                             </tr>
                             <tr>
                                 <th></th>
                                 <th scope="col">Cant.</th>
                                 <td></td>
-                                <td>{{ report.cant_deudas|default:"-" }}</td>
-                                <td>{{ report.cant_ingresos|default:"-" }}</td>
+                                <td>{{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td></td>
-                                <td>C{{ report.cant_cuentas|default:"-" }} B{{ report.cant_bancos|default:"-" }}</td>
-                                <td>{{ report.cant_bienes|default:"-" }}</td>
-                                <td>{{ report.cant_inversiones|default:"-" }}</td>
+                                <td>C{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }} B{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td>{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td></td>
                                 <td></td>
                                 <td></td>
@@ -5355,6 +6023,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
     </div>
+<script src="{% static 'js/finances.js' %}"></script>
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/details.html" -Encoding utf8
