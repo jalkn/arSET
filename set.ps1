@@ -558,7 +558,6 @@ urlpatterns = [
 # Update core/views.py with financial import
 Set-Content -Path "core/views.py" -Value @"
 # views.py
-# views.py
 import pandas as pd
 from datetime import datetime
 import os
@@ -736,7 +735,11 @@ def main(request):
     context['person_count'] = Person.objects.count()
     context['conflict_count'] = Conflict.objects.count()
     context['finances_count'] = FinancialReport.objects.count()
-    context['tc_count'] = TCS.objects.count() # Get count from TCS model
+    context['tc_count'] = TCS.objects.count()
+    context['active_person_count'] = Person.objects.filter(estado='Activo').count()
+    context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count() # Add this line for "Accionista del Grupo"
+    # Add count for 'Aum. Pat. Subito' > 2
+    context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
 
     return render(request, 'home.html', context)
 
@@ -832,7 +835,7 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''), 
+                        'correo': row.get('correo', ''),
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
@@ -1182,6 +1185,12 @@ def financial_report_list(request):
     compania_filter = request.GET.get('compania', '')
     ano_declaracion_filter = request.GET.get('ano_declaracion', '')
 
+    # New filter parameters
+    column_to_filter = request.GET.get('column', '')
+    operator = request.GET.get('operator', '')
+    value1 = request.GET.get('value', '')  # Assuming 'value' is your first value input
+    value2 = request.GET.get('value2', '') # For 'between' operator
+
     order_by = request.GET.get('order_by', 'person__nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
 
@@ -1198,6 +1207,36 @@ def financial_report_list(request):
 
     if ano_declaracion_filter:
         financial_reports = financial_reports.filter(ano_declaracion=ano_declaracion_filter)
+
+    # Apply dynamic column filters
+    if column_to_filter and operator and value1:
+        try:
+            if operator == '>':
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}__gt": _clean_numeric_value(value1)})
+            elif operator == '<':
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}__lt": _clean_numeric_value(value1)})
+            elif operator == '=':
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}": _clean_numeric_value(value1)})
+            elif operator == '>=':
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}__gte": _clean_numeric_value(value1)})
+            elif operator == '<=':
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}__lte": _clean_numeric_value(value1)})
+            elif operator == 'between' and value2:
+                val1 = _clean_numeric_value(value1)
+                val2 = _clean_numeric_value(value2)
+                if val1 is not None and val2 is not None:
+                    financial_reports = financial_reports.filter(**{f"{column_to_filter}__range": (min(val1, val2), max(val1, val2))})
+                else:
+                    messages.warning(request, "Invalid values for 'between' operator.")
+            elif operator == 'contains':
+                # 'contains' is typically for text fields. Ensure the field is text or convert.
+                financial_reports = financial_reports.filter(**{f"{column_to_filter}__icontains": value1})
+            else:
+                messages.warning(request, "Invalid operator selected.")
+        except ValueError:
+            messages.error(request, f"Error converting value for filter on {column_to_filter}.")
+        except Exception as e:
+            messages.error(request, f"Error applying filter: {e}")
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
@@ -1218,6 +1257,11 @@ def financial_report_list(request):
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        # Pass back the filter values for persistence in the form
+        'selected_column': column_to_filter,
+        'selected_operator': operator,
+        'selected_value1': value1,
+        'selected_value2': value2,
     }
 
     return render(request, 'finances.html', context)
@@ -1229,10 +1273,11 @@ def tcs_list(request):
     View to display TCS (credit card) transactions.
     """
     search_query = request.GET.get('q', '')
-    compania_filter = request.GET.get('compania', '')
+    descripcion_filter = request.GET.get('descripcion', '') # Changed from compania_filter
     numero_tarjeta_filter = request.GET.get('numero_tarjeta', '')
     fecha_transaccion_start = request.GET.get('fecha_transaccion_start', '')
     fecha_transaccion_end = request.GET.get('fecha_transaccion_end', '')
+    category_filter = request.GET.get('category_filter', '') # New category filter
 
     order_by = request.GET.get('order_by', 'fecha_transaccion')
     sort_direction = request.GET.get('sort_direction', 'desc') # Default to descending for dates
@@ -1247,8 +1292,8 @@ def tcs_list(request):
             Q(tarjetahabiente__icontains=search_query)
         )
 
-    if compania_filter:
-        tcs_transactions = tcs_transactions.filter(person__compania=compania_filter)
+    if descripcion_filter: # Changed filter application
+        tcs_transactions = tcs_transactions.filter(descripcion__icontains=descripcion_filter)
 
     if numero_tarjeta_filter:
         # Filter by last 4 digits or full number
@@ -1268,10 +1313,32 @@ def tcs_list(request):
         except ValueError:
             messages.error(request, "Formato de fecha de fin inválido.")
 
+    # Apply category filters
+    if category_filter:
+        if category_filter == 'restaurantes':
+            tcs_transactions = tcs_transactions.filter(descripcion__icontains='FIT CHOICES CALLE 99')
+            # Add more values later:
+            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='FIT CHOICES CALLE 99') | Q(descripcion__icontains='ANOTHER RESTAURANT'))
+        elif category_filter == 'suscripciones':
+            tcs_transactions = tcs_transactions.filter(descripcion__icontains='CHRIS HOLA')
+            # Add more values later:
+            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='CHRIS HOLA') | Q(descripcion__icontains='ANOTHER SUBSCRIPTION'))
+        elif category_filter == 'gastos_diversos':
+            tcs_transactions = tcs_transactions.filter(descripcion__icontains='ECONOMY PARK RIDE MIA')
+            # Add more values later:
+            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='ECONOMY PARK RIDE MIA') | Q(descripcion__icontains='OTHER EXPENSE'))
+        elif category_filter == 'compras':
+            tcs_transactions = tcs_transactions.filter(descripcion__icontains='CARULLA LAS PALMAS')
+            # Add more values later:
+            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='CARULLA LAS PALMAS') | Q(descripcion__icontains='ANOTHER PURCHASE'))
+
+
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     tcs_transactions = tcs_transactions.order_by(order_by)
 
+    # companias is no longer needed if we're filtering by description instead of company.
+    # If you still want to display companies for other purposes, keep this line.
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
 
     paginator = Paginator(tcs_transactions, 25)
@@ -1281,10 +1348,11 @@ def tcs_list(request):
     context = {
         'tcs_transactions': page_obj,
         'page_obj': page_obj,
-        'companias': companias,
+        'companias': companias, # Still passing companias even if not directly used in the new filter
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction', 'category_filter']},
+        'selected_category': category_filter, # Pass the selected category back to the template
     }
 
     return render(request, 'tcs.html', context)
@@ -3478,125 +3546,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 "@ | Out-File -FilePath "core/static/js/loading.js" -Encoding utf8
 
-# Create finances.js
-@"
-document.addEventListener('DOMContentLoaded', function() {
-    const table = document.querySelector('.table-striped');
-
-    // Function to determine the trend symbol based on the percentage change
-    const getTrendSymbol = (value) => {
-        try {
-            // Remove '%' and replace comma with dot for proper float parsing
-            const cleanedValue = value.replace('%', '').replace(',', '.').trim();
-            const valueFloat = parseFloat(cleanedValue) / 100;
-
-            if (isNaN(valueFloat)) { // Check for NaN after parseFloat
-                return "➡️";
-            } else if (valueFloat > 0.1) { // more than 10% increase
-                return "📈";
-            } else if (valueFloat < -0.1) { // more than 10% decrease
-                return "📉";
-            } else {
-                return "➡️"; // relatively stable
-            }
-        } catch (e) {
-            return "➡️";
-        }
-    };
-
-    if (table) {
-        table.querySelectorAll('tbody tr').forEach(row => {
-            // Function to apply styling based on value
-            const applyConditionalColor = (cell, numericValue) => {
-                // Reset color first to clear previous states
-                cell.style.color = ''; // Resets to default/inherited color
-
-                if (numericValue !== null && !isNaN(numericValue)) {
-                    if (numericValue < -50 || numericValue > 50) {
-                        cell.style.color = 'red';
-                    } else if (numericValue > 30 || numericValue < -30) {
-                        cell.style.color = 'green';
-                    }
-                }
-            };
-
-            // Function to get and parse value from a cell
-            const parseCellValue = (cell) => {
-                if (!cell) return null;
-
-                let valueText = cell.textContent.trim();
-                if (valueText === '-' || valueText === '') {
-                    return null;
-                } else {
-                    valueText = valueText.replace('%', '').replace(',', '.');
-                    return parseFloat(valueText);
-                }
-            };
-
-            // --- Patrimonio Var. Rel. % (index 9) ---
-            const patrimonioVarRelCell = row.children[9];
-            const numericValuePatrimonio = parseCellValue(patrimonioVarRelCell);
-            applyConditionalColor(patrimonioVarRelCell, numericValuePatrimonio);
-            patrimonioVarRelCell.textContent += ' ' + getTrendSymbol(patrimonioVarRelCell.textContent); // Add trend symbol
-
-            // --- Activos Var. Rel. % (index 12) ---
-            const activosVarRelCell = row.children[12];
-            const numericValueActivos = parseCellValue(activosVarRelCell);
-            applyConditionalColor(activosVarRelCell, numericValueActivos);
-            activosVarRelCell.textContent += ' ' + getTrendSymbol(activosVarRelCell.textContent); // Add trend symbol
-
-            // --- Pasivos Var. Rel. % (index 15) ---
-            const pasivosVarRelCell = row.children[15];
-            const numericValuePasivos = parseCellValue(pasivosVarRelCell);
-            applyConditionalColor(pasivosVarRelCell, numericValuePasivos);
-            pasivosVarRelCell.textContent += ' ' + getTrendSymbol(pasivosVarRelCell.textContent); // Add trend symbol
-
-            // --- Aum. Pat. Subito (index 7) ---
-            const aumPatSubitoCell = row.children[7];
-            const numericValueAumPatSubito = parseCellValue(aumPatSubitoCell);
-
-            if (numericValueAumPatSubito !== null && !isNaN(numericValueAumPatSubito)) {
-                if (numericValueAumPatSubito > 2) {
-                    aumPatSubitoCell.style.color = 'red';
-                } else if (numericValueAumPatSubito > 1.5) {
-                    aumPatSubitoCell.style.color = 'green';
-                } else {
-                    aumPatSubitoCell.style.color = ''; // Reset to default if neither condition is met
-                }
-            }
-
-            // --- Cant. Deudas (index 17) ---
-            const cantDeudasCell = row.children[17];
-            const numericValueCantDeudas = parseCellValue(cantDeudasCell);
-
-            if (numericValueCantDeudas !== null && !isNaN(numericValueCantDeudas)) {
-                if (numericValueCantDeudas > 6) {
-                    cantDeudasCell.style.color = 'red';
-                } else if (numericValueCantDeudas > 4) {
-                    cantDeudasCell.style.color = 'green';
-                } else {
-                    cantDeudasCell.style.color = '';
-                }
-            }
-
-            // --- Cant. Cuentas (index 25) ---
-            const cantCuentasCell = row.children[25];
-            const numericValueCantCuentas = parseCellValue(cantCuentasCell);
-
-            if (numericValueCantCuentas !== null && !isNaN(numericValueCantCuentas)) {
-                if (numericValueCantCuentas > 6) {
-                    cantCuentasCell.style.color = 'red';
-                } else if (numericValueCantCuentas > 4) {
-                    cantCuentasCell.style.color = 'green';
-                } else {
-                    cantCuentasCell.style.color = '';
-                }
-            }
-        });
-    }
-});
-"@ | Out-File -FilePath "core/static/js/finances.js" -Encoding utf8
-
 $jsContent = @"
 document.addEventListener('DOMContentLoaded', function() {
     const table = document.querySelector('.table');
@@ -3813,6 +3762,39 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <i class="far fa-credit-card fa-3x text-info mb-2"></i>
                 <h5 class="card-title mb-1">Tarjetas de Credito</h5>
                 <h2 class="card-text">{{ tc_count }}</h2>
+            </div>
+        </a>
+    </div>
+
+    {# New div for Active Persons #}
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'person_list' %}?status=Activo" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-user-check fa-3x text-success mb-2"></i> {# Using a different icon, e.g., user-check #}
+                <h5 class="card-title mb-1">Personas Activas</h5>
+                <h2 class="card-text">{{ active_person_count }}</h2>
+            </div>
+        </a>
+    </div>
+
+    {# New div for Accionista del Grupo #}
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-handshake fa-3x text-danger mb-2"></i> {# Using a different icon, e.g., handshake #}
+                <h5 class="card-title mb-1">Accionista del Grupo</h5>
+                <h2 class="card-text">{{ accionista_grupo_count }}</h2>
+            </div>
+        </a>
+    </div>
+
+    {# New div for Aum. Pat. Subito > 2 #}
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-chart-pie fa-3x text-warning mb-2"></i> {# Choose an appropriate icon #}
+                <h5 class="card-title mb-1">Aum. Pat. Subito > 2</h5>
+                <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
             </div>
         </a>
     </div>
@@ -4788,7 +4770,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% endblock %}
 
 {% block content %}
-<!-- Search Form -->
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
@@ -4799,7 +4780,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end %}
                 {% endif %}
             </div>
-            <!-- General Search (Person Name/Cedula/Description) -->
             <div class="col-md-4">
                 <input type="text" 
                        name="q" 
@@ -4808,17 +4788,14 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        value="{{ request.GET.q }}">
             </div>
             
-            <!-- Compania Filter -->
             <div class="col-md-3">
-                <select name="compania" class="form-select form-select-lg">
-                    <option value="">Compania</option>
-                    {% for compania in companias %}
-                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
-                    {% endfor %}
-                </select>
+                <input type="text"
+                       name="descripcion"
+                       class="form-control form-control-lg"
+                       placeholder="Buscar por descripcion..."
+                       value="{{ request.GET.descripcion }}">
             </div>
 
-            <!-- Numero Tarjeta Filter -->
             <div class="col-md-3">
                 <input type="text" 
                        name="numero_tarjeta" 
@@ -4827,38 +4804,33 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        value="{{ request.GET.numero_tarjeta }}">
             </div>
 
-            <!-- Fecha Transaccion Start Filter 
-            <div class="col-md-3">
-                <label for="fecha_transaccion_start" class="form-label visually-hidden">Fecha Inicio</label>
-                <input type="date" 
-                       name="fecha_transaccion_start" 
-                       id="fecha_transaccion_start"
-                       class="form-control form-control-lg" 
-                       title="Fecha de Transacción (Desde)"
-                       value="{{ request.GET.fecha_transaccion_start }}">
-            </div>
-
-            Fecha Transaccion End Filter 
-            <div class="col-md-3">
-                <label for="fecha_transaccion_end" class="form-label visually-hidden">Fecha Fin</label>
-                <input type="date" 
-                       name="fecha_transaccion_end" 
-                       id="fecha_transaccion_end"
-                       class="form-control form-control-lg" 
-                       title="Fecha de Transacción (Hasta)"
-                       value="{{ request.GET.fecha_transaccion_end }}">
-            </div>
-            -->
-            <!-- Submit Buttons -->
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+
+            <div class="col-12 d-flex flex-wrap gap-2 mt-2">
+                <button type="submit" name="category_filter" value="restaurantes"
+                        class="btn btn-outline-secondary {% if selected_category == 'restaurantes' %}active{% endif %}">
+                    Restaurantes
+                </button>
+                <button type="submit" name="category_filter" value="suscripciones"
+                        class="btn btn-outline-secondary {% if selected_category == 'suscripciones' %}active{% endif %}">
+                    Suscripciones
+                </button>
+                <button type="submit" name="category_filter" value="gastos_diversos"
+                        class="btn btn-outline-secondary {% if selected_category == 'gastos_diversos' %}active{% endif %}">
+                    Gastos diversos
+                </button>
+                <button type="submit" name="category_filter" value="compras"
+                        class="btn btn-outline-secondary {% if selected_category == 'compras' %}active{% endif %}">
+                    Compras
+                </button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- TCS Transactions Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
@@ -4966,10 +4938,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% empty %}
                         <tr>
                             <td colspan="15" class="text-center py-4">
-                                {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end %}
-                                    Sin transacciones de tarjetas de crédito que coincidan con los filtros.
+                                {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end or request.GET.category_filter %}
+                                    Sin transacciones de tarjetas de crÃ©dito que coincidan con los filtros.
                                 {% else %}
-                                    Sin transacciones de tarjetas de crédito
+                                    Sin transacciones de tarjetas de crÃ©dito
                                 {% endif %}
                             </td>
                         </tr>
@@ -4978,7 +4950,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </table>
         </div>
         
-        <!-- Pagination -->
         {% if page_obj.has_other_pages %}
         <div class="p-3">
             <nav aria-label="Page navigation">
@@ -5093,21 +5064,49 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             <div class="col-md-3">
                 <select name="column" class="form-select form-select-lg">
                     <option value="">Selecciona Columna</option>
+                    <option value="fk_id_periodo" {% if request.GET.column == 'fk_id_periodo' %}selected{% endif %}>Periodo ID</option>
                     <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
-                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aum. Pat. Subito</option>
-                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Rel.</option>
-                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Rel.</option>
-                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Rel.</option>
-                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Rel.</option>
-                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Rel.</option>
-                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>Banco_Saldo Var. Rel.</option>
-                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Rel.</option>
-                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Rel.</option>
+                    <option value="ano_creacion" {% if request.GET.column == 'ano_creacion' %}selected{% endif %}>Ano Creacion</option>
+                    <option value="activos" {% if request.GET.column == 'activos' %}selected{% endif %}>Activos</option>
+                    <option value="cant_bienes" {% if request.GET.column == 'cant_bienes' %}selected{% endif %}>Cantidad Bienes</option>
+                    <option value="cant_bancos" {% if request.GET.column == 'cant_bancos' %}selected{% endif %}>Cantidad Bancos</option>
+                    <option value="cant_cuentas" {% if request.GET.column == 'cant_cuentas' %}selected{% endif %}>Cantidad Cuentas</option>
+                    <option value="cant_inversiones" {% if request.GET.column == 'cant_inversiones' %}selected{% endif %}>Cantidad Inversiones</option>
+                    <option value="pasivos" {% if request.GET.column == 'pasivos' %}selected{% endif %}>Pasivos</option>
+                    <option value="cant_deudas" {% if request.GET.column == 'cant_deudas' %}selected{% endif %}>Cantidad Deudas</option>
+                    <option value="patrimonio" {% if request.GET.column == 'patrimonio' %}selected{% endif %}>Patrimonio</option>
+                    <option value="apalancamiento" {% if request.GET.column == 'apalancamiento' %}selected{% endif %}>Apalancamiento</option>
+                    <option value="endeudamiento" {% if request.GET.column == 'endeudamiento' %}selected{% endif %}>Endeudamiento</option>
+                    <option value="capital" {% if request.GET.column == 'capital' %}selected{% endif %}>Capital</option>
+                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aumento Patrimonio Súbito</option>
+                    <option value="activos_var_abs" {% if request.GET.column == 'activos_var_abs' %}selected{% endif %}>Activos Var. Absoluta</option>
+                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Relativa</option>
+                    <option value="pasivos_var_abs" {% if request.GET.column == 'pasivos_var_abs' %}selected{% endif %}>Pasivos Var. Absoluta</option>
+                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Relativa</option>
+                    <option value="patrimonio_var_abs" {% if request.GET.column == 'patrimonio_var_abs' %}selected{% endif %}>Patrimonio Var. Absoluta</option>
+                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Relativa</option>
+                    <option value="apalancamiento_var_abs" {% if request.GET.column == 'apalancamiento_var_abs' %}selected{% endif %}>Apalancamiento Var. Absoluta</option>
+                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Relativa</option>
+                    <option value="endeudamiento_var_abs" {% if request.GET.column == 'endeudamiento_var_abs' %}selected{% endif %}>Endeudamiento Var. Absoluta</option>
+                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Relativa</option>
+                    <option value="banco_saldo" {% if request.GET.column == 'banco_saldo' %}selected{% endif %}>Banco Saldo</option>
+                    <option value="bienes" {% if request.GET.column == 'bienes' %}selected{% endif %}>Bienes</option>
+                    <option value="inversiones" {% if request.GET.column == 'inversiones' %}selected{% endif %}>Inversiones</option>
+                    <option value="banco_saldo_var_abs" {% if request.GET.column == 'banco_saldo_var_abs' %}selected{% endif %}>Banco Saldo Var. Absoluta</option>
+                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>Banco Saldo Var. Relativa</option>
+                    <option value="bienes_var_abs" {% if request.GET.column == 'bienes_var_abs' %}selected{% endif %}>Bienes Var. Absoluta</option>
+                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Relativa</option>
+                    <option value="inversiones_var_abs" {% if request.GET.column == 'inversiones_var_abs' %}selected{% endif %}>Inversiones Var. Absoluta</option>
+                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Relativa</option>
+                    <option value="ingresos" {% if request.GET.column == 'ingresos' %}selected{% endif %}>Ingresos</option>
+                    <option value="cant_ingresos" {% if request.GET.column == 'cant_ingresos' %}selected{% endif %}>Cantidad Ingresos</option>
+                    <option value="ingresos_var_abs" {% if request.GET.column == 'ingresos_var_abs' %}selected{% endif %}>Ingresos Var. Absoluta</option>
+                    <option value="ingresos_var_rel" {% if request.GET.column == 'ingresos_var_rel' %}selected{% endif %}>Ingresos Var. Relativa</option>
                 </select>
             </div>
             
             <div class="col-md-2">
-                <select name="operator" class="form-select form-select-lg">
+                <select name="operator" class="form-select form-select-lg" onchange="toggleValueInput()">
                     <option value="">Selecciona operador</option>
                     <option value=">" {% if request.GET.operator == '>' %}selected{% endif %}>Mayor que</option>
                     <option value="<" {% if request.GET.operator == '<' %}selected{% endif %}>Menor que</option>
@@ -5119,12 +5118,22 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </select>
             </div>
             
-            <div class="col-md-2">
-                <input type="text" 
-                       name="value" 
-                       class="form-control form-control-lg" 
-                       placeholder="Valor" 
-                       value="{{ request.GET.value }}">
+            <div class="col-md-2" id="value1-container">
+                <input type="text"
+                    name="value"
+                    id="value1"
+                    class="form-control form-control-lg"
+                    placeholder="Valor"
+                    value="{{ request.GET.value|default:'' }}">
+            </div>
+
+            <div class="col-md-2" id="value2-container" style="display: none;"> {# Initially hidden #}
+                <input type="text"
+                    name="value2"
+                    id="value2"
+                    class="form-control form-control-lg"
+                    placeholder="Segundo Valor"
+                    value="{{ request.GET.value2|default:'' }}">
             </div>
             
             <div class="col-md-2 d-flex gap-2">
@@ -5188,13 +5197,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="6"></th>
                         <th data-column-index="7"></th>
                         <th data-column-index="8"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="9">-30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="9">-30%</th>
                         <th data-column-index="10"></th>
                         <th data-column-index="11"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="12">-30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="12">-30%</th>
                         <th data-column-index="13"></th>
                         <th data-column-index="14"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="15">-30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="15">-30%</th>
                         <th data-column-index="16"></th>
                         <th data-column-index="17"></th>
                         <th data-column-index="18"></th>
@@ -5222,19 +5231,19 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="2"></th>
                         <th data-column-index="3">Medio</th>
                         <th data-column-index="4">"<="</th>
-                        <th style="background-color: #228B22; " data-column-index="5"></th>
+                        <th style="background-color: green; " data-column-index="5"></th>
                         <th data-column-index="6"></th>
-                        <th style="background-color: #228B22;  color: white;" data-column-index="7">1.5</th>
+                        <th style="background-color: green;  color: white;" data-column-index="7">1.5</th>
                         <th data-column-index="8"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="9">30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="9">30%</th>
                         <th data-column-index="10"></th>
                         <th data-column-index="11"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="12">30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="12">30%</th>
                         <th data-column-index="13"></th>
                         <th data-column-index="14"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="15">30%</th>
+                        <th style="background-color: green; color: white;" data-column-index="15">30%</th>
                         <th data-column-index="16"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="17">4</th>
+                        <th style="background-color: green; color: white;" data-column-index="17">4</th>
                         <th data-column-index="18"></th>
                         <th data-column-index="19"></th>
                         <th data-column-index="20"></th>
@@ -5242,7 +5251,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="22"></th>
                         <th data-column-index="23"></th>
                         <th data-column-index="24"></th>
-                        <th style="background-color: #228B22; color: white;" data-column-index="25">4</th>
+                        <th style="background-color: green; color: white;" data-column-index="25">4</th>
                         <th data-column-index="26"></th>
                         <th data-column-index="27"></th>
                         <th data-column-index="28"></th>
@@ -5480,7 +5489,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo_var_rel&sort_direction={% if current_order == 'banco_saldo_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bancos Var. %
+                                Bancos Var. Rel. %
                             </a>
                         </th>
                         <th data-column-index="24">
@@ -5520,7 +5529,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes_var_rel&sort_direction={% if current_order == 'bienes_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Bienes Var. %
+                                Bienes Var. Rel. %
                             </a>
                         </th>
                         <th data-column-index="29">
@@ -5552,7 +5561,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones_var_rel&sort_direction={% if current_order == 'inversiones_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Inversiones Var. %
+                                Inversiones Var. Rel. %
                             </a>
                         </th>
                         <th data-column-index="33">
@@ -5576,57 +5585,147 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </thead>
                 <tbody>
                     {% for report in financial_reports %}
-                        <tr {% if report.person.revisar %}class="table-warning"{% endif %}>
+                        <tr {% if report.person.revisar %}class="table-warning"{% endif %} data-person-cedula="{{ report.person.cedula }}" data-ano-declaracion="{{ report.ano_declaracion }}">
                             <td>
                                 <a href="/admin/core/person/{{ report.person.cedula }}/change/" style="text-decoration: none;" title="{% if report.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
                                     <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
                                 </a>
                             </td>
+
                             <td>{{ report.person.nombre_completo }}</td>
                             <td>{{ report.person.compania }}</td>
                             <td>{{ report.person.cargo }}</td>
                             <td>{{ report.person.comments|truncatechars:30|default:"" }}</td>
                             <td>{{ report.fk_id_periodo|floatformat:"0"|default:"-" }}</td>
                             <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
-                            <td>{{ report.aum_pat_subito|default:"0" }}</td>
-                            <td>{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            
+                            <td data-field="aum_pat_subito"
+                                {% if report.aum_pat_subito >= 2 %}
+                                    style="color: red;"
+                                {% elif report.aum_pat_subito >= 1.5 and report.aum_pat_subito < 2 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.aum_pat_subito|default:"0" }}
+                            </td>
 
-                            <td {% if report.patrimonio_var_rel_numeric is not None and report.patrimonio_var_rel_numeric < -50 or report.patrimonio_var_rel_numeric > 50 %}style="color: red;"{% endif %}>
+                            <td data-field="patrimonio">{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="patrimonio_var_rel"
+                                {% if report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 >= 50 or report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 >= 30 and report.patrimonio_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 > -50 and report.patrimonio_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
                                 {{ report.patrimonio_var_rel|default:"0" }}
                             </td>
 
-                            <td>{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.activos_var_rel|default:"0" }}</td>
-                            <td>{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.pasivos_var_rel|default:"0" }}</td>
-                            <td>{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.ingresos_var_rel|default:"0" }}</td>
-                            <td>{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.banco_saldo_var_rel|default:"0" }}</td>
-                            <td>{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.bienes_var_rel|default:"0" }}</td>
-                            <td>{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.inversiones_var_rel|default:"0" }}</td>
-                            <td>{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
-                            <td>{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td> {# Apply intcomma here #}
+                            <td data-field="patrimonio_var_abs">{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="activos">{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="activos_var_rel"
+                                {% if report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 >= 50 or report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 >= 30 and report.activos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 > -50 and report.activos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.activos_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="activos_var_abs">{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="pasivos">{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="pasivos_var_rel"
+                                {% if report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 >= 50 or report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 >= 30 and report.pasivos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 > -50 and report.pasivos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.pasivos_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="pasivos_var_abs">{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            
+                            <td data-field="cant_deudas"
+                                {% if report.cant_deudas >= 6 %}
+                                    style="color: red;"
+                                {% elif report.cant_deudas >= 4 and report.cant_deudas < 6 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}
+                            </td>
+
+                            <td data-field="ingresos">{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="ingresos_var_rel"
+                                {% if report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 >= 50 or report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 >= 30 and report.ingresos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 > -50 and report.ingresos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.ingresos_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="ingresos_var_abs">{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="cant_ingresos">{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="banco_saldo">{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="banco_saldo_var_rel"
+                                {% if report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 >= 50 or report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 >= 30 and report.banco_saldo_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 > -50 and report.banco_saldo_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.banco_saldo_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="banco_saldo_var_abs">{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            
+                            <td data-field="cant_cuentas"
+                                {% if report.cant_cuentas >= 6 %}
+                                    style="color: red;"
+                                {% elif report.cant_cuentas >= 4 and report.cant_cuentas < 6 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}
+                            </td>
+                            
+                            <td data-field="cant_bancos">{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="bienes">{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="bienes_var_rel"
+                                {% if report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 >= 50 or report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 >= 30 and report.bienes_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 > -50 and report.bienes_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.bienes_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="bienes_var_abs">{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="cant_bienes">{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="inversiones">{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="inversiones_var_rel"
+                                {% if report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 >= 50 or report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                    style="color: red;"
+                                {% elif report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 >= 30 and report.inversiones_var_rel|floatformat:"0"|add:0 < 50 %}
+                                    style="color: green;"
+                                {% elif report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 > -50 and report.inversiones_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.inversiones_var_rel|default:"0" }}
+                            </td>
+                            <td data-field="inversiones_var_abs">{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                            <td data-field="cant_inversiones">{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
+                            
                             <td class="table-fixed-column">
-                                <a href="{% url 'person_details' report.person.cedula %}" 
-                                   class="btn btn-custom-primary btn-sm"
-                                   title="View person details">
+                                <a href="{% url 'person_details' report.person.cedula %}"
+                                class="btn btn-custom-primary btn-sm"
+                                title="View person details">
                                     <i class="bi bi-person-vcard-fill"></i>
                                 </a>
                             </td>
+
                         </tr>
                     {% empty %}
                         <tr>
@@ -5685,7 +5784,49 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
         {% endif %}
     </div>
-<script src="{% static 'js/finances.js' %}"></script>
+<script>
+    function toggleValueInput() {
+        var operatorSelect = document.querySelector('select[name="operator"]');
+        var value2Container = document.getElementById('value2-container');
+        var value1Input = document.getElementById('value1'); // Get the first value input
+
+        if (operatorSelect.value === 'between') {
+            value2Container.style.display = 'block';
+            value1Input.placeholder = "Primer Valor"; // Change placeholder for clarity
+        } else {
+            value2Container.style.display = 'none';
+            value1Input.placeholder = "Valor"; // Reset placeholder
+        }
+    }
+
+    // Call on page load to set initial state based on current selection
+    document.addEventListener('DOMContentLoaded', toggleValueInput);
+
+    // Add this to your JavaScript in finances.js or inline script:
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set selected values for dropdowns
+        const columnSelect = document.querySelector('select[name="column"]');
+        if (columnSelect && "{{ selected_column }}" !== "") {
+            columnSelect.value = "{{ selected_column }}";
+        }
+
+        const operatorSelect = document.querySelector('select[name="operator"]');
+        if (operatorSelect && "{{ selected_operator }}" !== "") {
+            operatorSelect.value = "{{ selected_operator }}";
+            toggleValueInput(); // Call to adjust value2 visibility
+        }
+
+        const value1Input = document.getElementById('value1');
+        if (value1Input && "{{ selected_value1 }}" !== "") {
+            value1Input.value = "{{ selected_value1 }}";
+        }
+
+        const value2Input = document.getElementById('value2');
+        if (value2Input && "{{ selected_value2 }}" !== "") {
+            value2Input.value = "{{ selected_value2 }}";
+        }
+    });
+</script>
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/finances.html" -Encoding utf8
@@ -5952,67 +6093,143 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </thead>
                         <tbody>
                             {% for report in financial_reports %}
-                            <tr>
+                            <tr data-person-cedula="{{ myperson.cedula }}" data-ano-declaracion="{{ report.ano_declaracion|floatformat:"0" }}">
                                 <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
                                 <th>Relativa</th>
-                                <td>{{ report.activos_var_rel|default:"0" }}</td>
-                                <td>{{ report.pasivos_var_rel|default:"0" }}</td>
-                                <td>{{ report.ingresos_var_rel|default:"0" }}</td>
-                                <td>{{ report.patrimonio_var_rel|default:"0" }}</td>
-                                <td>{{ report.banco_saldo_var_rel|default:"0" }}</td>
-                                <td>{{ report.bienes_var_rel|default:"0" }}</td>
-                                <td>{{ report.inversiones_var_rel|default:"0" }}</td>
-                                <td>{{ report.apalancamiento_var_rel|default:"0" }}</td>
-                                <td>{{ report.endeudamiento_var_rel|default:"0" }}</td>
-                                <td>{{ report.aum_pat_subito|default:"0" }}</td>
+                                <td data-field="activos_var_rel"
+                                    {% if report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 >= 50 or report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 >= 30 and report.activos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.activos_var_rel and report.activos_var_rel|floatformat:"0"|add:0 > -50 and report.activos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.activos_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="pasivos_var_rel"
+                                    {% if report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 >= 50 or report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 >= 30 and report.pasivos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.pasivos_var_rel and report.pasivos_var_rel|floatformat:"0"|add:0 > -50 and report.pasivos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.pasivos_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="ingresos_var_rel"
+                                    {% if report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 >= 50 or report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 >= 30 and report.ingresos_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.ingresos_var_rel and report.ingresos_var_rel|floatformat:"0"|add:0 > -50 and report.ingresos_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.ingresos_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="patrimonio_var_rel"
+                                    {% if report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 >= 50 or report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 >= 30 and report.patrimonio_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.patrimonio_var_rel and report.patrimonio_var_rel|floatformat:"0"|add:0 > -50 and report.patrimonio_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.patrimonio_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="banco_saldo_var_rel"
+                                    {% if report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 >= 50 or report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 >= 30 and report.banco_saldo_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.banco_saldo_var_rel and report.banco_saldo_var_rel|floatformat:"0"|add:0 > -50 and report.banco_saldo_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.banco_saldo_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="bienes_var_rel"
+                                    {% if report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 >= 50 or report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 >= 30 and report.bienes_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.bienes_var_rel and report.bienes_var_rel|floatformat:"0"|add:0 > -50 and report.bienes_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.bienes_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="inversiones_var_rel"
+                                    {% if report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 >= 50 or report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 <= -50 %}
+                                        style="color: red;"
+                                    {% elif report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 >= 30 and report.inversiones_var_rel|floatformat:"0"|add:0 < 50 %}
+                                        style="color: green;"
+                                    {% elif report.inversiones_var_rel and report.inversiones_var_rel|floatformat:"0"|add:0 > -50 and report.inversiones_var_rel|floatformat:"0"|add:0 <= -30 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.inversiones_var_rel|default:"0" }}
+                                </td>
+                                <td data-field="apalancamiento_var_rel">{{ report.apalancamiento_var_rel|default:"0" }}</td>
+                                <td data-field="endeudamiento_var_rel">{{ report.endeudamiento_var_rel|default:"0" }}</td>
+                                <td data-field="aum_pat_subito"
+                                    {% if report.aum_pat_subito >= 2 %}
+                                        style="color: red;"
+                                    {% elif report.aum_pat_subito >= 1.5 and report.aum_pat_subito < 2 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.aum_pat_subito|default:"0" }}
+                                </td>
                             </tr>
                             <tr>
                                 <th></th>
                                 <th scope="col">Absoluta</th>
-                                <td>{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.apalancamiento_var_abs|default:"0" }}</td>
-                                <td>{{ report.endeudamiento_var_abs|default:"0" }}</td>
-                                <td>{{ report.capital_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="activos_var_abs">{{ report.activos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="pasivos_var_abs">{{ report.pasivos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="ingresos_var_abs">{{ report.ingresos_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="patrimonio_var_abs">{{ report.patrimonio_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="banco_saldo_var_abs">{{ report.banco_saldo_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="bienes_var_abs">{{ report.bienes_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="inversiones_var_abs">{{ report.inversiones_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="apalancamiento_var_abs">{{ report.apalancamiento_var_abs|default:"0" }}</td>
+                                <td data-field="endeudamiento_var_abs">{{ report.endeudamiento_var_abs|default:"0" }}</td>
+                                <td data-field="capital_var_abs">{{ report.capital_var_abs|floatformat:"0"|intcomma|default:"0" }}</td>
                             </tr>
                             <tr>
                                 <td></td>
                                 <th scope="col">Total</th>
-                                <td>&#36;{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>&#36;{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.apalancamiento|floatformat:2|default:"0" }}</td>
-                                <td>{{ report.endeudamiento|floatformat:2|default:"0" }}</td>
-                                <td>&#36;{{ report.capital|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="activos">&#36;{{ report.activos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="pasivos">&#36;{{ report.pasivos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="ingresos">&#36;{{ report.ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="patrimonio">&#36;{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="banco_saldo">&#36;{{ report.banco_saldo|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="bienes">&#36;{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="inversiones">&#36;{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="apalancamiento">{{ report.apalancamiento|floatformat:2|default:"0" }}</td>
+                                <td data-field="endeudamiento">{{ report.endeudamiento|floatformat:2|default:"0" }}</td>
+                                <td data-field="capital">&#36;{{ report.capital|floatformat:"0"|intcomma|default:"0" }}</td>
                             </tr>
                             <tr>
                                 <th></th>
                                 <th scope="col">Cant.</th>
                                 <td></td>
-                                <td>{{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_deudas"
+                                    {% if report.cant_deudas >= 6 %}
+                                        style="color: red;"
+                                    {% elif report.cant_deudas >= 4 and report.cant_deudas < 6 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}
+                                </td>
+                                <td data-field="cant_ingresos">{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td></td>
-                                <td>C{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }} B{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td>{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_cuentas">{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_bancos">{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_bienes">{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_inversiones">{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td></td>
                                 <td></td>
                                 <td></td>
-                            </tr>
-                                
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="8" class="text-center py-4">
+                                <td colspan="12" class="text-center py-4">
                                     No hay reportes financieros disponibles
                                 </td>
                             </tr>
@@ -6023,7 +6240,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
         </div>
     </div>
-<script src="{% static 'js/finances.js' %}"></script>
+</div>
+<script src="{% static 'js/details.js' %}"></script>
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/details.html" -Encoding utf8
