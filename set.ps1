@@ -172,8 +172,8 @@ class TCS(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Transacción de Tarjeta de Crédito"
-        verbose_name_plural = "Transacciones de Tarjetas de Crédito"
+        verbose_name = "Transaccion de Tarjeta de Credito"
+        verbose_name_plural = "Transacciones de Tarjetas de Credito"
         # Add a unique constraint if a transaction can be uniquely identified by these fields
         # For now, allowing duplicates as multiple transactions can have same details but different IDs
         unique_together = ('person', 'numero_tarjeta', 'fecha_transaccion', 'descripcion', 'valor_original')
@@ -741,7 +741,8 @@ def main(request):
     context['active_person_count'] = Person.objects.filter(estado='Activo').count()
     context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count() # Add this line for "Accionista del Grupo"
     context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
-    context['alerts_count'] = Person.objects.filter(revisar=True).count() # Add alerts count
+    context['alerts_count'] = Person.objects.filter(revisar=True).count()
+    context['restaurantes_count'] = TCS.objects.filter(descripcion__icontains='restaurantes').count()
 
     return render(request, 'home.html', context)
 
@@ -3851,6 +3852,17 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
         </a>
     </div>
+
+    <div class="col-md-3 mb-4">
+        <a href="{% url 'tcs_list' %}?category_filter=restaurantes" class="card h-100 text-decoration-none text-dark">
+            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                <i class="fas fa-utensils fa-3x text-info mb-2"></i> {# Icon for restaurants #}
+                <h5 class="card-title mb-1">Transacciones en Restaurantes</h5>
+                <h2 class="card-text">{{ restaurantes_count }}</h2>
+            </div>
+        </a>
+    </div>
+
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/home.html" -Encoding utf8
@@ -5000,9 +5012,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <tr>
                             <td colspan="15" class="text-center py-4">
                                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end or request.GET.category_filter %}
-                                    Sin transacciones de tarjetas de crÃ©dito que coincidan con los filtros.
+                                    Sin transacciones de tarjetas de credito que coincidan con los filtros.
                                 {% else %}
-                                    Sin transacciones de tarjetas de crÃ©dito
+                                    Sin transacciones de tarjetas de credito
                                 {% endif %}
                             </td>
                         </tr>
