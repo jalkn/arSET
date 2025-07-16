@@ -558,7 +558,6 @@ urlpatterns = [
 
 # Update core/views.py with financial import
 Set-Content -Path "core/views.py" -Value @"
-# views.py
 import pandas as pd
 from datetime import datetime
 import os
@@ -577,7 +576,7 @@ from django.db.models import Q
 import subprocess
 import msoffcrypto
 import io
-import re # Import regex module
+import re
 
 # Helper function to clean and convert numeric values from strings
 def _clean_numeric_value(value):
@@ -739,10 +738,20 @@ def main(request):
     context['finances_count'] = FinancialReport.objects.count()
     context['tc_count'] = TCS.objects.count()
     context['active_person_count'] = Person.objects.filter(estado='Activo').count()
-    context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count() # Add this line for "Accionista del Grupo"
+    context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count()
     context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
     context['alerts_count'] = Person.objects.filter(revisar=True).count()
-    context['restaurantes_count'] = TCS.objects.filter(descripcion__icontains='restaurantes').count()
+
+    # Calculate "Restaurantes" count for the home page
+    restaurantes_count = TCS.objects.filter(
+        Q(descripcion__icontains='CHEF BURGER MILLA DE O') |
+        Q(descripcion__icontains='CREPES Y WAFFLES OVIED') |
+        Q(descripcion__icontains='CREPES Y WAFFLES B/GDE') |
+        Q(descripcion__icontains='CREPES Y WAFFLES') |
+        Q(descripcion__icontains='FIORDI PIZZA PLAZA DEL') |
+        Q(descripcion__icontains='FIT CHOICES CALLE 99')
+    ).count()
+    context['restaurantes_count'] = restaurantes_count # Add to context
 
     return render(request, 'home.html', context)
 
@@ -1193,8 +1202,8 @@ def financial_report_list(request):
     # New filter parameters
     column_to_filter = request.GET.get('column', '')
     operator = request.GET.get('operator', '')
-    value1 = request.GET.get('value', '')  # Assuming 'value' is your first value input
-    value2 = request.GET.get('value2', '') # For 'between' operator
+    value1 = request.GET.get('value', '')
+    value2 = request.GET.get('value2', '')
 
     order_by = request.GET.get('order_by', 'person__nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
@@ -1322,28 +1331,44 @@ def tcs_list(request):
     # Apply category filters
     if category_filter:
         if category_filter == 'restaurantes':
-            tcs_transactions = tcs_transactions.filter(descripcion__icontains='FIT CHOICES CALLE 99')
-            # Add more values later:
-            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='FIT CHOICES CALLE 99') | Q(descripcion__icontains='ANOTHER RESTAURANT'))
+            tcs_transactions = tcs_transactions.filter(
+                Q(descripcion__icontains='CHEF BURGER MILLA DE O') |
+                Q(descripcion__icontains='CREPES Y WAFFLES OVIED') |
+                Q(descripcion__icontains='CREPES Y WAFFLES B/GDE') |
+                Q(descripcion__icontains='CREPES Y WAFFLES') |
+                Q(descripcion__icontains='FIORDI PIZZA PLAZA DEL') |
+                Q(descripcion__icontains='FIT CHOICES CALLE 99')
+            )
         elif category_filter == 'suscripciones':
-            tcs_transactions = tcs_transactions.filter(descripcion__icontains='CHRIS HOLA')
-            # Add more values later:
-            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='CHRIS HOLA') | Q(descripcion__icontains='ANOTHER SUBSCRIPTION'))
+            tcs_transactions = tcs_transactions.filter(
+                Q(descripcion__icontains='CHRIS HOLA')
+                # Add more values later:
+                # | Q(descripcion__icontains='ANOTHER SUBSCRIPTION')
+            )
         elif category_filter == 'gastos_diversos':
-            tcs_transactions = tcs_transactions.filter(descripcion__icontains='ECONOMY PARK RIDE MIA')
-            # Add more values later:
-            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='ECONOMY PARK RIDE MIA') | Q(descripcion__icontains='OTHER EXPENSE'))
+            tcs_transactions = tcs_transactions.filter(
+                Q(descripcion__icontains='ECONOMY PARK RIDE MIA')
+                # Add more values later:
+                # | Q(descripcion__icontains='OTHER EXPENSE')
+            )
         elif category_filter == 'compras':
-            tcs_transactions = tcs_transactions.filter(descripcion__icontains='CARULLA LAS PALMAS')
-            # Add more values later:
-            # tcs_transactions = tcs_transactions.filter(Q(descripcion__icontains='CARULLA LAS PALMAS') | Q(descripcion__icontains='ANOTHER PURCHASE'))
+            tcs_transactions = tcs_transactions.filter(
+                Q(descripcion__icontains='CARULLA LAS PALMAS')
+                # Add more values later:
+                # | Q(descripcion__icontains='ANOTHER PURCHASE')
+            )
+        elif category_filter == 'gastos_vehiculos':
+            tcs_transactions = tcs_transactions.filter(
+                Q(descripcion__icontains='CIRCUITO 34 CAR WASH')
+                # Add more values later:
+                # | Q(descripcion__icontains='ANOTHER PURCHASE')
+            )
 
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     tcs_transactions = tcs_transactions.order_by(order_by)
 
-    # companias is no longer needed if we're filtering by description instead of company.
     # If you still want to display companies for other purposes, keep this line.
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
 
@@ -2574,6 +2599,10 @@ import pandas as pd
 def get_trend_symbol(value):
     """Determine the trend symbol based on the percentage change."""
     try:
+        # Check if the value is "N/A" or empty, indicating no trend for the first year
+        if value in ["N/A", "0.00%", ""]:
+            return "" # Return empty string for no trend
+            
         value_float = float(value.strip('%')) / 100
         if pd.isna(value_float):
             return "➡️"
@@ -2595,13 +2624,11 @@ def calculate_variation(df, column):
     
     df[absolute_col] = df.groupby('Usuario')[column].diff()
     
-    df[relative_col] = (
-        df.groupby('Usuario')[column]
-        .ffill()
-        .pct_change(fill_method=None) * 100
-    )
+    # Calculate percentage change
+    pct_change = df.groupby('Usuario')[column].pct_change(fill_method=None) * 100
     
-    df[relative_col] = df[relative_col].apply(lambda x: f"{x:.2f}%" if not pd.isna(x) else "0.00%")
+    # Apply formatting: "0.00%" for non-NaN values, empty string for NaN (first year)
+    df[relative_col] = pct_change.apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "")
     
     return df
 
@@ -2614,13 +2641,14 @@ def embed_trend_symbols(df, columns):
         if absolute_col in df.columns:
             df[absolute_col] = df.apply(
                 lambda row: f"{row[absolute_col]:.2f} {get_trend_symbol(row[relative_col])}" 
-                if pd.notna(row[absolute_col]) else "N/A ➡️",
+                if pd.notna(row[f'{col} Var. Abs. No_Symbol']) else "N/A", # Use a temporary column to check for original NaN
                 axis=1
             )
         
         if relative_col in df.columns:
+            # Check if the underlying relative change was NaN before formatting
             df[relative_col] = df.apply(
-                lambda row: f"{row[relative_col]} {get_trend_symbol(row[relative_col])}", 
+                lambda row: f"{row[relative_col]} {get_trend_symbol(row[relative_col])}" if row[relative_col] != "" else "",
                 axis=1
             )
     
@@ -2646,6 +2674,8 @@ def process_asset_data(df_assets):
 
     for column in ['Banco_Saldo', 'Bienes', 'Inversiones']:
         df_assets_grouped = calculate_variation(df_assets_grouped, column)
+        # Create a temporary column to hold the absolute variation without symbol for the N/A check
+        df_assets_grouped[f'{column} Var. Abs. No_Symbol'] = df_assets_grouped[f'{column} Var. Abs.']
     
     df_assets_grouped = embed_trend_symbols(df_assets_grouped, ['Banco_Saldo', 'Bienes', 'Inversiones'])
     return df_assets_grouped
@@ -2658,6 +2688,7 @@ def process_income_data(df_income):
     ).reset_index()
 
     df_income_grouped = calculate_variation(df_income_grouped, 'Ingresos')
+    df_income_grouped[f'Ingresos Var. Abs. No_Symbol'] = df_income_grouped[f'Ingresos Var. Abs.']
     df_income_grouped = embed_trend_symbols(df_income_grouped, ['Ingresos'])
     return df_income_grouped
 
@@ -2672,37 +2703,49 @@ def calculate_yearly_variations(df):
         'Cant_Ingresos'
     ]
     
-    new_columns = {}
+    # Store original values of absolute changes before formatting
+    temp_abs_cols = {}
     
     for column in [col for col in columns_to_analyze if col in df.columns]:
         grouped = df.groupby('Usuario')[column]
         
         for year in [2021, 2022, 2023, 2024]:
-            abs_col = f'{year} {column} Var. Abs.'
-            new_columns[abs_col] = grouped.diff()
+            abs_col_name = f'{year} {column} Var. Abs.'
+            rel_col_name = f'{year} {column} Var. Rel.'
             
-            rel_col = f'{year} {column} Var. Rel.'
+            # Calculate absolute variation (diff)
+            abs_variation = grouped.diff()
+            df[abs_col_name] = abs_variation
+            
+            # Store original (unformatted) absolute variation for trend symbol logic
+            temp_abs_cols[abs_col_name] = abs_variation
+            
+            # Calculate relative variation (pct_change)
             pct_change = grouped.pct_change(fill_method=None) * 100
-            new_columns[rel_col] = pct_change.apply(
-                lambda x: f"{x:.2f}%" if not pd.isna(x) else "0.00%"
+            df[rel_col_name] = pct_change.apply(
+                lambda x: f"{x:.2f}%" if pd.notna(x) else ""
             )
-    
-    df = pd.concat([df, pd.DataFrame(new_columns)], axis=1)
-    
+            
+    # Apply formatting and symbols after all calculations
     for column in [col for col in columns_to_analyze if col in df.columns]:
         for year in [2021, 2022, 2023, 2024]:
-            abs_col = f'{year} {column} Var. Abs.'
-            rel_col = f'{year} {column} Var. Rel.'
+            abs_col_name = f'{year} {column} Var. Abs.'
+            rel_col_name = f'{year} {column} Var. Rel.'
             
-            if abs_col in df.columns:
-                df[abs_col] = df.apply(
-                    lambda row: f"{row[abs_col]:.2f} {get_trend_symbol(row[rel_col])}" 
-                    if pd.notna(row[abs_col]) else "N/A ➡️",
+            if abs_col_name in df.columns:
+                df[abs_col_name] = df.apply(
+                    lambda row: (
+                        f"{temp_abs_cols[abs_col_name].loc[row.name]:.2f} {get_trend_symbol(row[rel_col_name])}" 
+                        if pd.notna(temp_abs_cols[abs_col_name].loc[row.name]) else "N/A"
+                    ),
                     axis=1
                 )
-            if rel_col in df.columns:
-                df[rel_col] = df.apply(
-                    lambda row: f"{row[rel_col]} {get_trend_symbol(row[rel_col])}", 
+            if rel_col_name in df.columns:
+                df[rel_col_name] = df.apply(
+                    lambda row: (
+                        f"{row[rel_col_name]} {get_trend_symbol(row[rel_col_name])}" 
+                        if row[rel_col_name] != "" else ""
+                    ), 
                     axis=1
                 )
     
@@ -2716,11 +2759,11 @@ def calculate_sudden_wealth_increase(df):
     df['Capital'] = df['Activos'] + df['Patrimonio']
     
     # Calculate year-to-year change as decimal
-    df['Aum. Pat. Subito'] = df.groupby('Usuario')['Capital'].pct_change(fill_method=None)
+    df['Aum. Pat. Subito_No_Symbol'] = df.groupby('Usuario')['Capital'].pct_change(fill_method=None)
     
     # Format as decimal (1 place) with trend symbol
-    df['Aum. Pat. Subito'] = df['Aum. Pat. Subito'].apply(
-        lambda x: f"{x:.1f} {get_trend_symbol(f'{x*100:.1f}%')}" if not pd.isna(x) else "N/A ➡️"
+    df['Aum. Pat. Subito'] = df['Aum. Pat. Subito_No_Symbol'].apply(
+        lambda x: f"{x:.1f} {get_trend_symbol(f'{x*100:.1f}%')}" if pd.notna(x) else "N/A"
     )
     
     return df
@@ -2735,7 +2778,10 @@ def save_results(df, excel_filename="core/src/trends.xlsx"):
         if 'Usuario' in df_output.columns:
             df_output['Usuario'] = df_output['Usuario'].astype(str)
         
-        # Rename columns for output
+        # Rename columns for output and drop temporary columns
+        cols_to_drop = [col for col in df_output.columns if 'No_Symbol' in col]
+        df_output = df_output.drop(columns=cols_to_drop, errors='ignore')
+
         df_output.columns = [col.replace('Usuario', 'Id').replace('Compañía', 'Compania') 
                            for col in df_output.columns]
         
@@ -2765,7 +2811,9 @@ def main():
         
         for column in ['Activos', 'Pasivos', 'Patrimonio', 'Apalancamiento', 'Endeudamiento']:
             df_worth = calculate_variation(df_worth, column)
-        
+            # Create a temporary column to hold the absolute variation without symbol for the N/A check
+            df_worth[f'{column} Var. Abs. No_Symbol'] = df_worth[f'{column} Var. Abs.']
+
         df_worth = embed_trend_symbols(df_worth, ['Activos', 'Pasivos', 'Patrimonio', 'Apalancamiento', 'Endeudamiento'])
         
         # Process asset data
@@ -2780,6 +2828,9 @@ def main():
         df_combined = pd.merge(df_worth, df_assets_processed, on=['Usuario', 'Año Declaración'], how='left')
         df_combined = pd.merge(df_combined, df_income_processed, on=['Usuario', 'Año Declaración'], how='left')
         
+        # Calculate yearly variations for the combined dataframe
+        df_combined = calculate_yearly_variations(df_combined)
+
         # Save basic trends
         save_results(df_combined, "core/src/trends.xlsx")
         
@@ -3835,7 +3886,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3 mb-4">
         <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-handshake fa-3x text-danger mb-2"></i> {# Using a different icon, e.g., handshake #}
+                <i class="fas fa-handshake fa-3x text-success mb-2"></i> {# Using a different icon, e.g., handshake #}
                 <h5 class="card-title mb-1">Accionista del Grupo</h5>
                 <h2 class="card-text">{{ accionista_grupo_count }}</h2>
             </div>
@@ -3846,17 +3897,18 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3 mb-4">
         <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-chart-pie fa-3x text-warning mb-2"></i> {# Choose an appropriate icon #}
+                <i class="fas fa-arrow-alt-circle-up fa-3x text-danger mb-2"></i>
                 <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
                 <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
             </div>
         </a>
     </div>
 
+    {# New div for Restaurantes count #}
     <div class="col-md-3 mb-4">
         <a href="{% url 'tcs_list' %}?category_filter=restaurantes" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-utensils fa-3x text-info mb-2"></i> {# Icon for restaurants #}
+                <i class="fas fa-utensils fa-3x text-secondary mb-2"></i> {# Icon for restaurants #}
                 <h5 class="card-title mb-1">Transacciones en Restaurantes</h5>
                 <h2 class="card-text">{{ restaurantes_count }}</h2>
             </div>
@@ -4899,6 +4951,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         class="btn btn-outline-secondary {% if selected_category == 'compras' %}active{% endif %}">
                     Compras
                 </button>
+                <button type="submit" name="category_filter" value="gastos_vehiculos"
+                        class="btn btn-outline-secondary {% if selected_category == 'gastos_vehiculos' %}active{% endif %}">
+                    Gastos Vehiculos
+                </button>
+                <button type="submit" name="category_filter" value="gastos_medicos"
+                        class="btn btn-outline-secondary {% if selected_category == 'gastos_medicos' %}active{% endif %}">
+                    Gastos Medicos
+                </button>
+                <button type="submit" name="category_filter" value="tecnologia"
+                        class="btn btn-outline-secondary {% if selected_category == 'tecnologia' %}active{% endif %}">
+                    Tecnologia
+                </button>
+                <button type="submit" name="category_filter" value="pagos_online"
+                        class="btn btn-outline-secondary {% if selected_category == 'pagos_online' %}active{% endif %}">
+                    Pagos online
+                </button>
+                <button type="submit" name="category_filter" value="telefono_internet"
+                        class="btn btn-outline-secondary {% if selected_category == 'telefono_internet' %}active{% endif %}">
+                    Servicio telefono e internet
+                </button>
+                <button type="submit" name="category_filter" value="gastos_viaje"
+                        class="btn btn-outline-secondary {% if selected_category == 'gastos_viaje' %}active{% endif %}">
+                    Gastos Viaje
+                </button>
+                <button type="submit" name="category_filter" value="avances"
+                        class="btn btn-outline-secondary {% if selected_category == 'avances' %}active{% endif %}">
+                    Avances
+                </button>
+                <button type="submit" name="category_filter" value="gastos_legales"
+                        class="btn btn-outline-secondary {% if selected_category == 'gastos_legales' %}active{% endif %}">
+                    Gastos Legales
+                </button>
             </div>
         </form>
     </div>
@@ -5138,7 +5222,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <option value="">Selecciona Columna</option>
                     <option value="fk_id_periodo" {% if request.GET.column == 'fk_id_periodo' %}selected{% endif %}>Periodo ID</option>
                     <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
-                    <option value="ano_creacion" {% if request.GET.column == 'ano_creacion' %}selected{% endif %}>Ano Creacion</option>
                     <option value="activos" {% if request.GET.column == 'activos' %}selected{% endif %}>Activos</option>
                     <option value="cant_bienes" {% if request.GET.column == 'cant_bienes' %}selected{% endif %}>Cantidad Bienes</option>
                     <option value="cant_bancos" {% if request.GET.column == 'cant_bancos' %}selected{% endif %}>Cantidad Bancos</option>
@@ -5147,10 +5230,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <option value="pasivos" {% if request.GET.column == 'pasivos' %}selected{% endif %}>Pasivos</option>
                     <option value="cant_deudas" {% if request.GET.column == 'cant_deudas' %}selected{% endif %}>Cantidad Deudas</option>
                     <option value="patrimonio" {% if request.GET.column == 'patrimonio' %}selected{% endif %}>Patrimonio</option>
-                    <option value="apalancamiento" {% if request.GET.column == 'apalancamiento' %}selected{% endif %}>Apalancamiento</option>
                     <option value="endeudamiento" {% if request.GET.column == 'endeudamiento' %}selected{% endif %}>Endeudamiento</option>
-                    <option value="capital" {% if request.GET.column == 'capital' %}selected{% endif %}>Capital</option>
-                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aumento Patrimonio Súbito</option>
+                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aumento Patrimonio Subito</option>
                     <option value="activos_var_abs" {% if request.GET.column == 'activos_var_abs' %}selected{% endif %}>Activos Var. Absoluta</option>
                     <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Relativa</option>
                     <option value="pasivos_var_abs" {% if request.GET.column == 'pasivos_var_abs' %}selected{% endif %}>Pasivos Var. Absoluta</option>
@@ -5230,9 +5311,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th data-column-index="7"></th>
-                        <th data-column-index="8"></th>
-                        <th style="background-color: red; color: white;" data-column-index="9">-50%</th>
-                        <th data-column-index="10"></th>
+                        <th data-column-index="8"></th> 
+                        <th data-column-index="9"></th>
+                        <th style="background-color: red; color: white;" data-column-index="10">-50%</th>
                         <th data-column-index="11"></th>
                         <th style="background-color: red; color: white;" data-column-index="12">-50%</th>
                         <th data-column-index="13"></th>
@@ -5268,9 +5349,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th data-column-index="7"></th>
-                        <th data-column-index="8"></th>
-                        <th style="background-color: green; color: white;" data-column-index="9">-30%</th>
-                        <th data-column-index="10"></th>
+                        <th data-column-index="8"></th> 
+                        <th data-column-index="9"></th>
+                        <th style="background-color: green; color: white;" data-column-index="10">-30%</th>
                         <th data-column-index="11"></th>
                         <th style="background-color: green; color: white;" data-column-index="12">-30%</th>
                         <th data-column-index="13"></th>
@@ -5302,13 +5383,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="1"></th>
                         <th data-column-index="2"></th>
                         <th data-column-index="3">Medio</th>
-                        <th data-column-index="4">"<="</th>
+                        <th data-column-index="4">">="</th>
                         <th style="background-color: green; " data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th style="background-color: green;  color: white;" data-column-index="7">1.5</th>
-                        <th data-column-index="8"></th>
-                        <th style="background-color: green; color: white;" data-column-index="9">30%</th>
-                        <th data-column-index="10"></th>
+                        <th style="background-color: green;  color: white;" data-column-index="8">50%</th> 
+                        <th data-column-index="9"></th>
+                        <th style="background-color: green; color: white;" data-column-index="10">30%</th>
                         <th data-column-index="11"></th>
                         <th style="background-color: green; color: white;" data-column-index="12">30%</th>
                         <th data-column-index="13"></th>
@@ -5340,13 +5421,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="1"></th>
                         <th data-column-index="2"></th>
                         <th data-column-index="3">Alto</th>
-                        <th data-column-index="4">"<"</th>
+                        <th data-column-index="4">">"</th>
                         <th style="background-color: red;" data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th style="background-color: red; color: white;" data-column-index="7">2</th>
-                        <th data-column-index="8"></th>
-                        <th style="background-color: red; color: white;" data-column-index="9">50%</th>
-                        <th data-column-index="10"></th>
+                        <th style="background-color: red; color: white;" data-column-index="8">70%</th> 
+                        <th data-column-index="9"></th>
+                        <th style="background-color: red; color: white;" data-column-index="10">50%</th>
                         <th data-column-index="11"></th>
                         <th style="background-color: red; color: white;" data-column-index="12">50%</th>
                         <th data-column-index="13"></th>
@@ -5436,223 +5517,233 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 Aum. Pat. Subito
                             </a>
                         </th>
+                        
                         <th data-column-index="8">
                             <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="8" title="Congelar columna">
+                                <i class="fas fa-thumbtack"></i>
+                            </button>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=endeudamiento&sort_direction={% if current_order == 'endeudamiento' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                % Endeudamiento
+                            </a>
+                        </th>
+                       
+                        <th data-column-index="9"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="9" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio&sort_direction={% if current_order == 'patrimonio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Patrimonio
                             </a>
                         </th>
-                        <th data-column-index="9">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="9" title="Congelar columna">
+                        <th data-column-index="10"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="10" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_rel&sort_direction={% if current_order == 'patrimonio_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Patrimonio Var. Rel. % 
                             </a>
                         </th>
-                        <th data-column-index="10">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="10" title="Congelar columna">
+                        <th data-column-index="11"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="11" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=patrimonio_var_abs&sort_direction={% if current_order == 'patrimonio_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Patrimonio Var. Abs. $
                             </a>
                         </th>
-                        <th data-column-index="11">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="11" title="Congelar columna">
+                        <th data-column-index="12"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="12" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos&sort_direction={% if current_order == 'activos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Activos
                             </a>
                         </th>
-                        <th data-column-index="12">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="12" title="Congelar columna">
+                        <th data-column-index="13"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="13" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_rel&sort_direction={% if current_order == 'activos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Activos Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="13">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="13" title="Congelar columna">
+                        <th data-column-index="14"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="14" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=activos_var_abs&sort_direction={% if current_order == 'activos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Activos Var. Abs. $
                             </a>
                         </th>
-                        <th data-column-index="14">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="14" title="Congelar columna">
+                        <th data-column-index="15"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="15" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos&sort_direction={% if current_order == 'pasivos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Pasivos
                             </a>
                         </th>
-                        <th data-column-index="15">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="15" title="Congelar columna">
+                        <th data-column-index="16"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="16" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_rel&sort_direction={% if current_order == 'pasivos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Pasivos Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="16">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="16" title="Congelar columna">
+                        <th data-column-index="17"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="17" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pasivos_var_abs&sort_direction={% if current_order == 'pasivos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Pasivos Var. Abs. $
                             </a>
                         </th>
-                        <th data-column-index="17">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="17" title="Congelar columna">
+                        <th data-column-index="18"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="18" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_deudas&sort_direction={% if current_order == 'cant_deudas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Deudas
                             </a>
                         </th>
-                        <th data-column-index="18">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="18" title="Congelar columna">
+                        <th data-column-index="19"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="19" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos&sort_direction={% if current_order == 'ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ingresos
                             </a>
                         </th>
-                        <th data-column-index="19">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="19" title="Congelar columna">
+                        <th data-column-index="20"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="20" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos_var_rel&sort_direction={% if current_order == 'ingresos_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ingresos Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="20">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="20" title="Congelar columna">
+                        <th data-column-index="21"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="21" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ingresos_var_abs&sort_direction={% if current_order == 'ingresos_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Ingresos Var. Abs. $
                             </a>
                         </th>
-                        <th data-column-index="21">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="21" title="Congelar columna">
+                        <th data-column-index="22"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="22" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_ingresos&sort_direction={% if current_order == 'cant_ingresos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Ingresos
                             </a>
                         </th>
-                        <th data-column-index="22">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="22" title="Congelar columna">
+                        <th data-column-index="23"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="23" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo&sort_direction={% if current_order == 'banco_saldo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bancos Saldo
                             </a>
                         </th>
-                        <th data-column-index="23">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="23" title="Congelar columna">
+                        <th data-column-index="24"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="24" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo_var_rel&sort_direction={% if current_order == 'banco_saldo_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bancos Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="24">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="24" title="Congelar columna">
+                        <th data-column-index="25"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="25" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=banco_saldo_var_abs&sort_direction={% if current_order == 'banco_saldo_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bancos Var. $
                             </a>
                         </th>
-                        <th data-column-index="25">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="25" title="Congelar columna">
+                        <th data-column-index="26"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="26" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_cuentas&sort_direction={% if current_order == 'cant_cuentas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Cuentas
                             </a>
                         </th>
-                        <th data-column-index="26">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="26" title="Congelar columna">
+                        <th data-column-index="27"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="27" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_bancos&sort_direction={% if current_order == 'cant_bancos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Bancos
                             </a>
                         </th>
-                        <th data-column-index="27">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="27" title="Congelar columna">
+                        <th data-column-index="28"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="28" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes&sort_direction={% if current_order == 'bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bienes Valor
                             </a>
                         </th>
-                        <th data-column-index="28">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="28" title="Congelar columna">
+                        <th data-column-index="29"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="29" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes_var_rel&sort_direction={% if current_order == 'bienes_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bienes Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="29">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="29" title="Congelar columna">
+                        <th data-column-index="30"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="30" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=bienes_var_abs&sort_direction={% if current_order == 'bienes_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Bienes Var. $
                             </a>
                         </th>
-                        <th data-column-index="30">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="30" title="Congelar columna">
+                        <th data-column-index="31"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="31" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_bienes&sort_direction={% if current_order == 'cant_bienes' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Bienes
                             </a>
                         </th>
-                        <th data-column-index="31">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="31" title="Congelar columna">
+                        <th data-column-index="32"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="32" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones&sort_direction={% if current_order == 'inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Inversiones Valor
                             </a>
                         </th>
-                        <th data-column-index="32">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="32" title="Congelar columna">
+                        <th data-column-index="33"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="33" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones_var_rel&sort_direction={% if current_order == 'inversiones_var_rel' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Inversiones Var. Rel. %
                             </a>
                         </th>
-                        <th data-column-index="33">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="33" title="Congelar columna">
+                        <th data-column-index="34"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="34" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=inversiones_var_abs&sort_direction={% if current_order == 'inversiones_var_abs' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Inversiones Var. $
                             </a>
                         </th>
-                        <th data-column-index="34">
-                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="34" title="Congelar columna">
+                        <th data-column-index="35"> {# Adjusted index #}
+                            <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="35" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cant_inversiones&sort_direction={% if current_order == 'cant_inversiones' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Cant. Inversiones
                             </a>
                         </th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);" data-column-index="35">Ver</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);" data-column-index="36">Ver</th> {# Adjusted index #}
                     </tr>
                 </thead>
                 <tbody>
@@ -5678,6 +5769,15 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                     style="color: green;"
                                 {% endif %}>
                                 {{ report.aum_pat_subito|default:"0" }}
+                            </td>
+                            
+                            <td data-field="endeudamiento"
+                                {% if report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 > 70 %}
+                                    style="color: red;"
+                                {% elif report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 >= 50 and report.endeudamiento|floatformat:"0"|add:0 <= 70 %}
+                                    style="color: green;"
+                                {% endif %}>
+                                {{ report.endeudamiento|default:"0" }}
                             </td>
 
                             <td data-field="patrimonio">{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
@@ -5797,11 +5897,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                     <i class="bi bi-person-vcard-fill"></i>
                                 </a>
                             </td>
-
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="36" class="text-center py-4">
+                            <td colspan="37" class="text-center py-4"> {# Adjusted colspan #}
                                 {% if request.GET.q or request.GET.column or request.GET.operator or request.GET.value %}
                                     Sin reportes financieros que coincidan con los filtros.
                                 {% else %}
@@ -5856,6 +5955,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
         {% endif %}
     </div>
+
 <script>
     function toggleValueInput() {
         var operatorSelect = document.querySelector('select[name="operator"]');
@@ -5899,6 +5999,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         }
     });
 </script>
+
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/finances.html" -Encoding utf8
@@ -6273,7 +6374,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <td data-field="bienes">&#36;{{ report.bienes|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td data-field="inversiones">&#36;{{ report.inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td data-field="apalancamiento">{{ report.apalancamiento|floatformat:2|default:"0" }}</td>
-                                <td data-field="endeudamiento">{{ report.endeudamiento|floatformat:2|default:"0" }}</td>
+
+                                <td data-field="endeudamiento"
+                                    {% if report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 > 70 %}
+                                        style="color: red;"
+                                    {% elif report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 >= 50 and report.endeudamiento|floatformat:"0"|add:0 <= 70 %}
+                                        style="color: green;"
+                                    {% endif %}>
+                                    {{ report.endeudamiento|default:"0" }}
+                                </td>
+                                
                                 <td data-field="capital">&#36;{{ report.capital|floatformat:"0"|intcomma|default:"0" }}</td>
                             </tr>
                             <tr>
