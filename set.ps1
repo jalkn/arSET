@@ -505,7 +505,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons, import_tcs,
                    import_finances, person_details, financial_report_list,
-                   tcs_list, export_persons_excel) # Import the new view export_persons_excel
+                   tcs_list, export_persons_excel, alerts_list) # Import the new view alerts_list
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -552,6 +552,7 @@ urlpatterns = [
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-finances/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
+    path('alerts/', views.alerts_list, name='alerts_list'), 
 ]
 "@
 
@@ -649,6 +650,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context['person_count'] = Person.objects.count()
         context['finances_count'] = FinancialReport.objects.count()
         context['tc_count'] = TCS.objects.count() # Get count from TCS model
+        context['alerts_count'] = Person.objects.filter(revisar=True).count() # Add alerts count
 
         analysis_results = []
         core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
@@ -738,8 +740,8 @@ def main(request):
     context['tc_count'] = TCS.objects.count()
     context['active_person_count'] = Person.objects.filter(estado='Activo').count()
     context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count() # Add this line for "Accionista del Grupo"
-    # Add count for 'Aum. Pat. Subito' > 2
     context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
+    context['alerts_count'] = Person.objects.filter(revisar=True).count() # Add alerts count
 
     return render(request, 'home.html', context)
 
@@ -1068,6 +1070,7 @@ def person_list(request):
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
     }
 
     return render(request, 'persons.html', context)
@@ -1175,6 +1178,7 @@ def conflict_list(request):
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
     }
 
     return render(request, 'conflicts.html', context)
@@ -1262,6 +1266,7 @@ def financial_report_list(request):
         'selected_operator': operator,
         'selected_value1': value1,
         'selected_value2': value2,
+        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
     }
 
     return render(request, 'finances.html', context)
@@ -1353,6 +1358,7 @@ def tcs_list(request):
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction', 'category_filter']},
         'selected_category': category_filter, # Pass the selected category back to the template
+        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
     }
 
     return render(request, 'tcs.html', context)
@@ -1558,12 +1564,54 @@ def person_details(request, cedula):
             'conflicts': conflicts,
             'financial_reports': financial_reports, # Pass financial reports to context
             'tcs_transactions': tcs_transactions, # Pass TCS transactions to context
+            'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
         }
 
         return render(request, 'details.html', context)
     except Person.DoesNotExist:
         messages.error(request, f"Person with ID {cedula} not found")
         return redirect('person_list')
+
+
+@login_required
+def alerts_list(request):
+    """
+    View to display persons marked for review (revisar=True).
+    """
+    search_query = request.GET.get('q', '')
+    order_by = request.GET.get('order_by', 'nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+
+    persons = Person.objects.filter(revisar=True)
+
+    if search_query:
+        persons = persons.filter(
+            Q(nombre_completo__icontains=search_query) |
+            Q(cedula__icontains=search_query) |
+            Q(correo__icontains=search_query))
+
+    if sort_direction == 'desc':
+        order_by = f'-{order_by}'
+    persons = persons.order_by(order_by)
+
+    # Convert names to title case for display
+    for person in persons:
+        person.nombre_completo = person.nombre_completo.title()
+
+    paginator = Paginator(persons, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'persons': page_obj,
+        'page_obj': page_obj,
+        'current_order': order_by.lstrip('-'),
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'alerts_count': Person.objects.filter(revisar=True).count(), # Pass alerts count
+    }
+
+    return render(request, 'alerts.html', context)
 "@
 
 # Create core/conflicts.py
@@ -3709,7 +3757,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% else %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
@@ -3793,7 +3846,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                 <i class="fas fa-chart-pie fa-3x text-warning mb-2"></i> {# Choose an appropriate icon #}
-                <h5 class="card-title mb-1">Aum. Pat. Subito > 2</h5>
+                <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
                 <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
             </div>
         </a>
@@ -3968,7 +4021,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% else %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -4231,11 +4289,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Alertas">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
             <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% endif %}
-        {% if alerts_count == 0 %}
+        {% else %}
             <span class="badge bg-secondary">0</span>
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
@@ -4470,7 +4527,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% else %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
@@ -4748,11 +4810,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Alertas">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
             <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% endif %}
-        {% if alerts_count == 0 %}
+        {% else %}
             <span class="badge bg-secondary">0</span>
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
@@ -5019,11 +5080,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Alertas">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
             <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% endif %}
-        {% if alerts_count == 0 %}
+        {% else %}
             <span class="badge bg-secondary">0</span>
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
@@ -5860,11 +5920,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Alertas">
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
             <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% endif %}
-        {% if alerts_count == 0 %}
+        {% else %}
             <span class="badge bg-secondary">0</span>
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
@@ -6245,6 +6304,206 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/details.html" -Encoding utf8
+
+# Create alert template
+@"
+{% extends "master.html" %}
+{% load static %}
+
+{% block title %}Alertas{% endblock %}
+{% block navbar_title %}Alertas{% endblock %}
+
+{% block navbar_buttons %}
+<div>
+    <a href="/" class="btn btn-custom-primary">
+        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+    </a>
+    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+        <i class="fas fa-chart-line" style="color: green;"></i>
+    </a>
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card" style="color: blue;"></i>
+    </a>
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    </a>
+    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+        {% if alerts_count > 0 %}
+            <span class="badge bg-danger">{{ alerts_count }}</span>
+        {% else %}
+            <span class="badge bg-secondary">0</span>
+        {% endif %}
+        <i class="fas fa-bell" style="color: red;"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+        <i class="fas fa-database"></i> 
+    </a>
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+        <i class="fas fa-file-excel" style="color: green;"></i>
+    </a>
+    <form method="post" action="{% url 'logout' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Search Form (Optional, but good for consistency) -->
+<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+    <div class="card-body">
+        <form method="get" action="." class="row g-3 align-items-center">
+            <div class="d-flex align-items-center">
+                <span class="badge bg-success">
+                    {{ page_obj.paginator.count }} alertas
+                </span>
+            </div>
+            <!-- General Search -->
+            <div class="col-md-4">
+                <input type="text" 
+                       name="q" 
+                       class="form-control form-control-lg" 
+                       placeholder="Buscar persona o cedula" 
+                       value="{{ request.GET.q }}">
+            </div>
+            
+            <!-- Submit Buttons -->
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Persons Table -->
+<div class="card border-0 shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive table-container">
+            <table class="table table-striped table-hover mb-0">
+                <thead class="table-fixed-header">
+                    <tr>
+                        <th>Revisar</th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cedula
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Nombre
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Correo
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compania
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Estado
+                            </a>
+                        </th>
+                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
+                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for person in persons %}
+                        <tr>
+                            <td>
+                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="Marcado para revisar">
+                                    <i class="fas fa-check-square text-warning" style="padding-left: 20px;"></i>
+                                </a>
+                            </td>
+                            <td>{{ person.cedula }}</td>
+                            <td>{{ person.nombre_completo }}</td>
+                            <td>{{ person.cargo }}</td>
+                            <td>{{ person.correo }}</td>
+                            <td>{{ person.compania }}</td>
+                            <td>
+                                <span class="badge bg-{% if person.estado == 'Activo' %}success{% else %}danger{% endif %}">
+                                    {{ person.estado }}
+                                </span>
+                            </td>
+                            <td>{{ person.comments|truncatechars:30|default:"" }}</td>
+                            <td class="table-fixed-column">
+                                <a href="{% url 'person_details' person.cedula %}" 
+                                   class="btn btn-custom-primary btn-sm"
+                                   title="View details">
+                                    <i class="bi bi-person-vcard-fill"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="9" class="text-center py-4">
+                                No hay personas marcadas para revisar.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+        <div class="p-3">
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                                <span aria-hidden="true">&laquo;&laquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                                <span aria-hidden="true">&raquo;&raquo;</span>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "core/templates/alerts.html" -Encoding utf8
 
 # Update settings.py
     $settingsContent = Get-Content -Path ".\arpa\settings.py" -Raw
