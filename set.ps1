@@ -779,7 +779,8 @@ def import_persons(request):
             column_mapping = {
                 'id': 'id', # Assuming 'id' column might exist in the input, or we'll add it later
                 'nombre completo': 'nombre_completo',
-                'ccorreo_normalizado': 'original_correo', # Temporarily rename input 'correo' to avoid conflict
+                # Map the input 'correo_normalizado' directly to a temporary name 'raw_correo'
+                'correo_normalizado': 'raw_correo',
                 'cedula': 'cedula',
                 'estado': 'estado',
                 'compania': 'compania',
@@ -807,12 +808,12 @@ def import_persons(request):
             if 'nombre_completo' in df.columns:
                 df['nombre_completo'] = df['nombre_completo'].str.title()
 
-            # and assign it to the 'correo' column in the DataFrame.
-            if 'original_correo' in df.columns:
-                # Keep '@' symbol, only remove periods and convert to lowercase
-                df['correo_normalizado'] = df['original_correo'].str.lower().str.replace('.', '', regex=False)
+            # Process 'raw_correo' to create 'correo_to_use' for the database and output
+            if 'raw_correo' in df.columns:
+                # Keep '@' symbol and periods, convert to lowercase
+                df['correo_to_use'] = df['raw_correo'].str.lower() # MODIFIED LINE
             else:
-                df['correo_normalizado'] = '' # Initialize if no original email is present
+                df['correo_to_use'] = '' # Initialize if no raw email is present
 
             # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo'
             output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo']
@@ -831,8 +832,8 @@ def import_persons(request):
                 output_columns_df['Compania'] = df['compania']
             if 'cargo' in df.columns:
                 output_columns_df['CARGO'] = df['cargo']
-            if 'correo_normalizado' in df.columns: # Use the newly created 'correo' column (normalized)
-                output_columns_df['correo'] = df['correo']
+            if 'correo_to_use' in df.columns: # Use the newly created 'correo_to_use' column
+                output_columns_df['correo'] = df['correo_to_use']
 
             # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
@@ -846,7 +847,7 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''),
+                        'correo': row.get('correo_to_use', ''), # Use 'correo_to_use' for the database
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
