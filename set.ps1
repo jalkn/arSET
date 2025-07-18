@@ -66,32 +66,33 @@ class Conflict(models.Model):
         to_field='cedula',
         db_column='cedula'
     )
+    ano = models.IntegerField(null=True, blank=True)
     fecha_inicio = models.DateField(null=True, blank=True)
     q1 = models.BooleanField(default=False)
-    q1_detalle = models.TextField(blank=True) # New field
+    q1_detalle = models.TextField(blank=True)
     q2 = models.BooleanField(default=False)
-    q2_detalle = models.TextField(blank=True) # New field
+    q2_detalle = models.TextField(blank=True)
     q3 = models.BooleanField(default=False)
-    q3_detalle = models.TextField(blank=True) # New field
+    q3_detalle = models.TextField(blank=True)
     q4 = models.BooleanField(default=False)
-    q4_detalle = models.TextField(blank=True) # New field
+    q4_detalle = models.TextField(blank=True)
     q5 = models.BooleanField(default=False)
-    q5_detalle = models.TextField(blank=True) # New field
+    q5_detalle = models.TextField(blank=True)
     q6 = models.BooleanField(default=False)
-    q6_detalle = models.TextField(blank=True) # New field
+    q6_detalle = models.TextField(blank=True)
     q7 = models.BooleanField(default=False)
-    q7_detalle = models.TextField(blank=True) # New field
+    q7_detalle = models.TextField(blank=True)
     q8 = models.BooleanField(default=False)
     q9 = models.BooleanField(default=False)
     q10 = models.BooleanField(default=False)
-    q10_detalle = models.TextField(blank=True) # New field
+    q10_detalle = models.TextField(blank=True)
     q11 = models.BooleanField(default=False)
-    q11_detalle = models.TextField(blank=True) # New field
+    q11_detalle = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Conflictos para {self.person.nombre_completo} (ID: {self.id})"
+        return f"Conflictos para {self.person.nombre_completo} (ID: {self.id}, Año: {self.ano})"
 
 class FinancialReport(models.Model):
     id = models.AutoField(primary_key=True)
@@ -113,33 +114,33 @@ class FinancialReport(models.Model):
     pasivos = models.FloatField(null=True, blank=True)
     cant_deudas = models.IntegerField(null=True, blank=True)
     patrimonio = models.FloatField(null=True, blank=True)
-    apalancamiento = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
-    endeudamiento = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    apalancamiento = models.FloatField(null=True, blank=True)
+    endeudamiento = models.FloatField(null=True, blank=True)
     capital = models.FloatField(null=True, blank=True)
     aum_pat_subito = models.FloatField(null=True, blank=True)
     activos_var_abs = models.FloatField(null=True, blank=True)
-    activos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    activos_var_rel = models.CharField(max_length=50, null=True, blank=True)
     pasivos_var_abs = models.FloatField(null=True, blank=True)
-    pasivos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    pasivos_var_rel = models.CharField(max_length=50, null=True, blank=True)
     patrimonio_var_abs = models.FloatField(null=True, blank=True)
-    patrimonio_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    patrimonio_var_rel = models.CharField(max_length=50, null=True, blank=True)
     apalancamiento_var_abs = models.FloatField(null=True, blank=True)
-    apalancamiento_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    apalancamiento_var_rel = models.CharField(max_length=50, null=True, blank=True)
     endeudamiento_var_abs = models.FloatField(null=True, blank=True)
-    endeudamiento_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    endeudamiento_var_rel = models.CharField(max_length=50, null=True, blank=True)
     banco_saldo = models.FloatField(null=True, blank=True)
     bienes = models.FloatField(null=True, blank=True)
     inversiones = models.FloatField(null=True, blank=True)
     banco_saldo_var_abs = models.FloatField(null=True, blank=True)
-    banco_saldo_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    banco_saldo_var_rel = models.CharField(max_length=50, null=True, blank=True)
     bienes_var_abs = models.FloatField(null=True, blank=True)
-    bienes_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    bienes_var_rel = models.CharField(max_length=50, null=True, blank=True)
     inversiones_var_abs = models.FloatField(null=True, blank=True)
-    inversiones_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    inversiones_var_rel = models.CharField(max_length=50, null=True, blank=True)
     ingresos = models.FloatField(null=True, blank=True)
     cant_ingresos = models.IntegerField(null=True, blank=True)
     ingresos_var_abs = models.FloatField(null=True, blank=True)
-    ingresos_var_rel = models.CharField(max_length=50, null=True, blank=True) # Can contain trend symbols
+    ingresos_var_rel = models.CharField(max_length=50, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -162,11 +163,11 @@ class TCS(models.Model):
     fecha_transaccion = models.DateField(null=True, blank=True)
     descripcion = models.TextField(null=True, blank=True)
     valor_original = models.FloatField(null=True, blank=True)
-    tasa_pactada = models.CharField(max_length=50, null=True, blank=True) # Stored as string due to format
-    tasa_ea_facturada = models.CharField(max_length=50, null=True, blank=True) # Stored as string due to format
+    tasa_pactada = models.CharField(max_length=50, null=True, blank=True)
+    tasa_ea_facturada = models.CharField(max_length=50, null=True, blank=True)
     cargos_abonos = models.FloatField(null=True, blank=True)
     saldo_a_diferir = models.FloatField(null=True, blank=True)
-    cuotas = models.CharField(max_length=20, null=True, blank=True) # Stored as string due to format
+    cuotas = models.CharField(max_length=20, null=True, blank=True)
     pagina = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -174,8 +175,6 @@ class TCS(models.Model):
     class Meta:
         verbose_name = "Transaccion de Tarjeta de Credito"
         verbose_name_plural = "Transacciones de Tarjetas de Credito"
-        # Add a unique constraint if a transaction can be uniquely identified by these fields
-        # For now, allowing duplicates as multiple transactions can have same details but different IDs
         unique_together = ('person', 'numero_tarjeta', 'fecha_transaccion', 'descripcion', 'valor_original')
 
     def __str__(self):
@@ -552,7 +551,8 @@ urlpatterns = [
     path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-finances/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
-    path('alerts/', views.alerts_list, name='alerts_list'), 
+    path('alerts/', views.alerts_list, name='alerts_list'),
+    path('toggle-revisar/<str:cedula>/', views.toggle_revisar_status, name='toggle_revisar_status'),
 ]
 "@
 
@@ -577,6 +577,28 @@ import subprocess
 import msoffcrypto
 import io
 import re
+from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, redirect
+
+@login_required
+@require_POST
+def toggle_revisar_status(request, cedula):
+    """
+    Toggles the 'revisar' status for a given person.
+    Expects a POST request with the person's cedula.
+    """
+    person = get_object_or_404(Person, cedula=cedula)
+    person.revisar = not person.revisar  # Toggle the boolean value
+    person.save()
+
+    messages.success(request, f"Revisar status for {person.nombre_completo} ({person.cedula}) updated successfully.")
+
+    # Redirect back to the page the request came from
+    next_url = request.META.get('HTTP_REFERER')
+    if next_url:
+        return redirect(next_url)
+    else:
+        return redirect('financial_report_list') # Or 'main' or 'alerts_list' as a default
 
 # Helper function to clean and convert numeric values from strings
 def _clean_numeric_value(value):
@@ -780,7 +802,8 @@ def import_persons(request):
             column_mapping = {
                 'id': 'id', # Assuming 'id' column might exist in the input, or we'll add it later
                 'nombre completo': 'nombre_completo',
-                'ccorreo_normalizado': 'original_correo', # Temporarily rename input 'correo' to avoid conflict
+                # Map the input 'correo_normalizado' directly to a temporary name 'raw_correo'
+                'correo_normalizado': 'raw_correo',
                 'cedula': 'cedula',
                 'estado': 'estado',
                 'compania': 'compania',
@@ -808,12 +831,12 @@ def import_persons(request):
             if 'nombre_completo' in df.columns:
                 df['nombre_completo'] = df['nombre_completo'].str.title()
 
-            # and assign it to the 'correo' column in the DataFrame.
-            if 'original_correo' in df.columns:
-                # Keep '@' symbol, only remove periods and convert to lowercase
-                df['correo_normalizado'] = df['original_correo'].str.lower().str.replace('.', '', regex=False)
+            # Process 'raw_correo' to create 'correo_to_use' for the database and output
+            if 'raw_correo' in df.columns:
+                # Keep '@' symbol and periods, convert to lowercase
+                df['correo_to_use'] = df['raw_correo'].str.lower() # MODIFIED LINE
             else:
-                df['correo_normalizado'] = '' # Initialize if no original email is present
+                df['correo_to_use'] = '' # Initialize if no raw email is present
 
             # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo'
             output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo']
@@ -832,8 +855,8 @@ def import_persons(request):
                 output_columns_df['Compania'] = df['compania']
             if 'cargo' in df.columns:
                 output_columns_df['CARGO'] = df['cargo']
-            if 'correo_normalizado' in df.columns: # Use the newly created 'correo' column (normalized)
-                output_columns_df['correo'] = df['correo']
+            if 'correo_to_use' in df.columns: # Use the newly created 'correo_to_use' column
+                output_columns_df['correo'] = df['correo_to_use']
 
             # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
@@ -847,7 +870,7 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo', ''),
+                        'correo': row.get('correo_to_use', ''), # Use 'correo_to_use' for the database
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
@@ -895,36 +918,49 @@ def import_conflicts(request):
                         }
                     )
 
-                    # Update or create Conflict object with new detail fields
+                    # Convert date string to date object for lookup
+                    fecha_inicio_str = row.get('fecha_de_inicio')
+                    fecha_inicio_date = None
+                    if pd.notna(fecha_inicio_str):
+                        try:
+                            # Assuming the format is 'YYYY-MM-DD HH:MM:SS' from pandas to_datetime
+                            # or 'DD/MM/YYYY' if it's still a string
+                            fecha_inicio_date = pd.to_datetime(fecha_inicio_str).date()
+                        except ValueError:
+                            messages.warning(request, f"Could not parse date '{fecha_inicio_str}' for conflict. Skipping row.")
+                            continue # Skip this row if date is unparseable
+
+
+                    # IMPORTANT CHANGE HERE: Include fecha_inicio in the lookup criteria
                     Conflict.objects.update_or_create(
                         person=person,
+                        fecha_inicio=fecha_inicio_date, # Use the parsed date as part of the unique key
                         defaults={
-                            'fecha_inicio': row.get('fecha_de_inicio', None),
-                            'q1': not pd.isna(row.get('q1')) and bool(row.get('q1', False)), # Check for NaN first
+                            'q1': not pd.isna(row.get('q1')) and bool(row.get('q1', False)),
                             'q1_detalle': row.get('q1_detalle', ''),
-                            'q2': not pd.isna(row.get('q2')) and bool(row.get('q2', False)), # Check for NaN first
+                            'q2': not pd.isna(row.get('q2')) and bool(row.get('q2', False)),
                             'q2_detalle': row.get('q2_detalle', ''),
-                            'q3': not pd.isna(row.get('q3')) and bool(row.get('q3', False)), # Check for NaN first
+                            'q3': not pd.isna(row.get('q3')) and bool(row.get('q3', False)),
                             'q3_detalle': row.get('q3_detalle', ''),
-                            'q4': not pd.isna(row.get('q4')) and bool(row.get('q4', False)), # Check for NaN first
+                            'q4': not pd.isna(row.get('q4')) and bool(row.get('q4', False)),
                             'q4_detalle': row.get('q4_detalle', ''),
-                            'q5': not pd.isna(row.get('q5')) and bool(row.get('q5', False)), # Check for NaN first
+                            'q5': not pd.isna(row.get('q5')) and bool(row.get('q5', False)),
                             'q5_detalle': row.get('q5_detalle', ''),
-                            'q6': not pd.isna(row.get('q6')) and bool(row.get('q6', False)), # Check for NaN first
+                            'q6': not pd.isna(row.get('q6')) and bool(row.get('q6', False)),
                             'q6_detalle': row.get('q6_detalle', ''),
-                            'q7': not pd.isna(row.get('q7')) and bool(row.get('q7', False)), # Check for NaN first
+                            'q7': not pd.isna(row.get('q7')) and bool(row.get('q7', False)),
                             'q7_detalle': row.get('q7_detalle', ''),
-                            'q8': not pd.isna(row.get('q8')) and bool(row.get('q8', False)), # Apply fix here
-                            'q9': not pd.isna(row.get('q9')) and bool(row.get('q9', False)), # Apply fix here
-                            'q10': not pd.isna(row.get('q10')) and bool(row.get('q10', False)), # Check for NaN first
+                            'q8': not pd.isna(row.get('q8')) and bool(row.get('q8', False)),
+                            'q9': not pd.isna(row.get('q9')) and bool(row.get('q9', False)),
+                            'q10': not pd.isna(row.get('q10')) and bool(row.get('q10', False)),
                             'q10_detalle': row.get('q10_detalle', ''),
-                            'q11': not pd.isna(row.get('q11')) and bool(row.get('q11', False)), # Check for NaN first
+                            'q11': not pd.isna(row.get('q11')) and bool(row.get('q11', False)),
                             'q11_detalle': row.get('q11_detalle', '')
                         }
                     )
 
                 except Exception as e:
-                    messages.error(request, f"Error processing row {row}: {str(e)}")
+                    messages.error(request, f"Error processing row with cedula {row.get('cedula', 'N/A')}: {str(e)}")
                     continue
 
             messages.success(request, f'Archivo de conflictos importado exitosamente! {len(df)} registros procesados.')
@@ -968,6 +1004,17 @@ def import_financial_reports(request):
                     }
                 )
 
+                apalancamiento_val = _clean_numeric_value(row.get('apalancamiento'))
+                # If apalancamiento_val is a number > 1 and it didn't originally have a '%' sign,
+                # it's likely a percentage like 12.45 which needs to be stored as 0.1245
+                if isinstance(apalancamiento_val, (int, float)) and apalancamiento_val is not None and apalancamiento_val > 1.0 and '%' not in str(row.get('apalancamiento', '')):
+                    apalancamiento_val /= 100
+
+                endeudamiento_val = _clean_numeric_value(row.get('endeudamiento'))
+                # Similar logic for endeudamiento_val
+                if isinstance(endeudamiento_val, (int, float)) and endeudamiento_val is not None and endeudamiento_val > 1.0 and '%' not in str(row.get('endeudamiento', '')):
+                    endeudamiento_val /= 100
+
                 # Prepare data for FinancialReport, handling potential NaN values and cleaning numeric fields
                 report_data = {
                     'person': person,
@@ -982,8 +1029,8 @@ def import_financial_reports(request):
                     'pasivos': _clean_numeric_value(row.get('pasivos')),
                     'cant_deudas': _clean_numeric_value(row.get('cant_deudas')),
                     'patrimonio': _clean_numeric_value(row.get('patrimonio')),
-                    'apalancamiento': str(row.get('apalancamiento')) if pd.notna(row.get('apalancamiento')) else '',
-                    'endeudamiento': str(row.get('endeudamiento')) if pd.notna(row.get('endeudamiento')) else '',
+                    'apalancamiento': apalancamiento_val, # Use the processed value
+                    'endeudamiento': endeudamiento_val,
                     'capital': _clean_numeric_value(row.get('capital')),
                     'aum_pat_subito': _clean_numeric_value(row.get('aum_pat_subito')), # Apply cleaning here
                     'activos_var_abs': _clean_numeric_value(row.get('activos_var_abs')),
@@ -1642,19 +1689,23 @@ def alerts_list(request):
 
 # Create core/conflicts.py
 Set-Content -Path "core/conflicts.py" -Value @"
+# conflicts.py
 import pandas as pd
 import os
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
-def extract_specific_columns(input_file, output_file, custom_headers=None):
-
+def extract_specific_columns(input_file, output_file, custom_headers=None, year=None):
     try:
         # Setup output directory
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         # Read raw data (no automatic parsing)
         df = pd.read_excel(input_file, header=None)
+
+        # Check initial number of rows in the raw data (starting from row 4, which is index 3)
+        initial_raw_rows = df.shape[0] - 3
+        print(f"Initial raw data rows (after header rows): {initial_raw_rows}")
 
         # Column selection (first 11 + specified extras)
         base_cols = list(range(11))  # Columns 0-10 (A-K)
@@ -1663,140 +1714,144 @@ def extract_specific_columns(input_file, output_file, custom_headers=None):
         selected_cols = [col for col in base_cols + extra_cols if col < df.shape[1]]
 
         # Extract data with headers
+        # This operation itself selects all rows from index 3 onwards for the selected columns
         result = df.iloc[3:, selected_cols].copy()
         result.columns = df.iloc[2, selected_cols].values
+
+        print(f"Rows after initial column selection and header application: {result.shape[0]}")
 
         # Apply custom headers if provided
         if custom_headers is not None:
             if len(custom_headers) != len(result.columns):
+                # This check might fail if 'Año' is in custom_headers but not directly from Excel
+                # Revisit this check if 'Año' is added directly into custom_headers list
                 raise ValueError(f"Custom headers count ({len(custom_headers)}) doesn't match column count ({len(result.columns)})")
             result.columns = custom_headers
+            print(f"Columns after applying custom headers: {result.columns.tolist()}")
 
-        # Get the original column names from the 3rd row of the input file
-        original_col_names = df.iloc[2, :].tolist()
-     
-        # Get the raw data for concatenation (from the original df, rows 3 onwards)
+
+        # Add the 'Año' column to the result DataFrame
+        if year is not None:
+            result['Año'] = year
+        else:
+            try:
+                filename_without_ext = os.path.basename(input_file).split('.')[0]
+                year_from_filename = int("".join(filter(str.isdigit, filename_without_ext)))
+                result['Año'] = year_from_filename
+                print(f"Deduced year from filename: {year_from_filename}")
+            except ValueError:
+                print("Warning: Could not extract year from filename and no year was provided. 'Año' column will be empty.")
+                result['Año'] = pd.NA # Or a default value if preferred
+
+        # Ensure 'Nombre' concatenation handles all rows
         primer_nombre_col_idx = 3 # This corresponds to column D in input file
         primer_apellido_col_idx = 4 # This corresponds to column E in input file
         segundo_apellido_col_idx = 5 # This corresponds to column F in input file
 
-        # Ensure these columns exist in the original dataframe
         if primer_nombre_col_idx < df.shape[1] and primer_apellido_col_idx < df.shape[1] and segundo_apellido_col_idx < df.shape[1]:
-
-            # Create a temporary DataFrame to hold the raw content of C, D, E, F
             temp_df_for_name = df.iloc[3:, [2, 3, 4, 5]].copy()
-            
-            # Fill NA/NaN values with empty strings to allow proper concatenation
             temp_df_for_name = temp_df_for_name.fillna('')
+            result_nombre_series = temp_df_for_name.iloc[:, 0].astype(str) + " " + \
+                                   temp_df_for_name.iloc[:, 1].astype(str) + " " + \
+                                   temp_df_for_name.iloc[:, 2].astype(str) + " " + \
+                                   temp_df_for_name.iloc[:, 3].astype(str)
+            # Ensure the 'Nombre' column is assigned based on the index of 'result'
+            result["Nombre"] = result_nombre_series.values # Assign values directly to avoid index alignment issues if result has non-contiguous index
+            print(f"Rows after 'Nombre' concatenation: {result.shape[0]}")
+        else:
+            print("Warning: Not all name columns (C, D, E, F) found in the input DataFrame for name concatenation.")
 
-            # Concatenate the columns with a space in between
-            # Use .astype(str) to ensure all elements are strings before joining
-            result["Nombre"] = temp_df_for_name.iloc[:, 0].astype(str) + " " + \
-                                temp_df_for_name.iloc[:, 1].astype(str) + " " + \
-                                temp_df_for_name.iloc[:, 2].astype(str) + " " + \
-                                temp_df_for_name.iloc[:, 3].astype(str)
 
-        # Process "Nombre" column AFTER merging (if it was a merge)
+        # Process "Nombre" column AFTER merging
         if "Nombre" in result.columns:
-            # First replace actual NaN values with empty string
             result["Nombre"] = result["Nombre"].fillna("")
-            # Then replace any "Nan" strings (case insensitive) with empty string
             result["Nombre"] = result["Nombre"].replace(r'(?i)\bNan\b', '', regex=True)
-            # Clean up multiple spaces that might result from the replacement
             result["Nombre"] = result["Nombre"].str.replace(r'\s+', ' ', regex=True).str.strip()
-            # Finally apply title case
             result["Nombre"] = result["Nombre"].str.title()
+            print(f"Rows after 'Nombre' cleanup: {result.shape[0]}")
 
-        # <--- ADD THIS LINE TO REPLACE EMPTY STRINGS WITH pd.NA (NaN) --->
+        # Replace empty strings with pd.NA (NaN)
         result.replace('', pd.NA, inplace=True)
+        print(f"Rows after replacing empty strings with NA: {result.shape[0]}")
+
 
         # Special handling for Column J (input index 9), which becomes 'Fecha de Inicio' in custom headers
         if "Fecha de Inicio" in result.columns:
             date_col = "Fecha de Inicio"
 
-            # Convert with European date format
             result[date_col] = pd.to_datetime(
                 result[date_col],
                 dayfirst=True,
                 errors='coerce'
             )
+            print(f"Rows after date conversion: {result.shape[0]}")
 
             # Save with Excel formatting
             with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
                 result.to_excel(writer, index=False)
 
-                # Get the worksheet and format the date column
                 worksheet = writer.sheets['Sheet1']
-                # Find the column letter for 'Fecha de Inicio' in the output Excel
                 date_col_letter = get_column_letter(result.columns.get_loc(date_col) + 1)
 
-                # Apply date format to all cells in the column
                 for cell in worksheet[date_col_letter]:
-                    if cell.row == 1:  # Skip header
+                    if cell.row == 1:
                         continue
                     cell.number_format = 'DD/MM/YYYY'
 
-                # Auto-adjust columns
                 for idx, col in enumerate(result.columns):
                     col_letter = get_column_letter(idx+1)
                     worksheet.column_dimensions[col_letter].width = max(
                         len(str(col))+2,
-                        (result[col].astype(str).str.len().max() or 0) + 2 # Handle empty series
+                        (result[col].astype(str).str.len().max() or 0) + 2
                     )
-
+            print(f"Successfully saved '{output_file}' with {result.shape[0]} rows.")
         else:
-            print("Warning: 'Fecha de Inicio' column not found in processed data")
-            # If 'Fecha de Inicio' is not present, save the file without date formatting
+            print("Warning: 'Fecha de Inicio' column not found in processed data. Saving without date formatting.")
             result.to_excel(output_file, index=False)
-            
-        return result # Return the processed dataframe
+            print(f"Successfully saved '{output_file}' with {result.shape[0]} rows (no date formatting).")
+
+        return result
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return pd.DataFrame() # Return empty DataFrame on error
+        print(f"Error in extract_specific_columns: {str(e)}")
+        return pd.DataFrame()
 
 def generate_justrue_file(input_df, output_file):
     try:
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
-        # Initialize an empty DataFrame for jusTrue.xlsx
+
         justrue_data = pd.DataFrame()
-        
-        # Ensure 'Cedula' column exists
+
         if 'Cedula' in input_df.columns:
             justrue_data['Cedula'] = input_df['Cedula']
         else:
-            print("Error: 'Cedula' column not found in the input DataFrame.")
+            print("Error: 'Cedula' column not found in the input DataFrame for jusTrue file generation.")
             return
 
-        # Define the Q columns to check for "true"
+        if 'Año' in input_df.columns:
+            justrue_data['Año'] = input_df['Año']
+
         q_columns = [f"Q{i}" for i in range(1, 8)] + [f"Q{i}" for i in range(10, 12)]
 
-        # Iterate through Q columns and add to jusTrue_data if condition is met
         for q_col in q_columns:
             if q_col in input_df.columns:
-                # and ensure the value is a string before calling .str.lower()
-                true_rows = input_df[input_df[q_col].astype(str).str.lower() == 'true']
-                
-                # Create a new column in justrue_data, initializing with pandas NA (NaN)
-                justrue_data[q_col] = pd.NA 
-                # Assign 'true' to rows where the condition is met, keeping alignment by index
-                if not true_rows.empty:
-                    justrue_data.loc[true_rows.index, q_col] = 'true'
+                # Assign 'true' where the condition is met, keeping original index alignment
+                # Use .loc for setting values to avoid SettingWithCopyWarning
+                justrue_data[q_col] = input_df[q_col].apply(lambda x: 'true' if str(x).lower() == 'true' else pd.NA)
             else:
-                print(f"Warning: Column '{q_col}' not found in the input DataFrame.")
+                print(f"Warning: Column '{q_col}' not found in the input DataFrame for jusTrue file generation.")
 
-        # These correspond to Q1 through Q7 in your current justrue_data setup
-        cols_to_check = [f"Q{i}" for i in range(1, 8)] 
-        
-        # Drop rows where all cols_to_check are NA (NaN)
+        cols_to_check = [f"Q{i}" for i in range(1, 8)]
+
+        initial_justrue_rows = justrue_data.shape[0]
         justrue_data.dropna(subset=cols_to_check, how='all', inplace=True)
+        print(f"Rows in jusTrue data before dropping NAs: {initial_justrue_rows}")
+        print(f"Rows in jusTrue data after dropping NAs (only rows with at least one Q1-Q7 'true'): {justrue_data.shape[0]}")
 
-        # Save the jusTrue_data to an Excel file
+
         with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
             justrue_data.to_excel(writer, index=False)
 
-            # Auto-adjust columns
             worksheet = writer.sheets['Sheet1']
             for idx, col in enumerate(justrue_data.columns):
                 col_letter = get_column_letter(idx + 1)
@@ -1810,7 +1865,8 @@ def generate_justrue_file(input_df, output_file):
     except Exception as e:
         print(f"Error creating jusTrue file: {str(e)}")
 
-# Updated custom_headers to include the new detail fields
+# Updated custom_headers to include the new detail fields.
+# 'Año' will be added dynamically, so it's not in this list.
 custom_headers = [
     "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido",
     "2do Apellido", "Compañía", "Cargo", "Email", "Fecha de Inicio",
@@ -1819,11 +1875,14 @@ custom_headers = [
     "Q7", "Q7 Detalle", "Q8", "Q9", "Q10", "Q10 Detalle", "Q11", "Q11 Detalle"
 ]
 
-# First, extract and process the main conflicts.xlsx file
+# Assuming current year is 2024 for the conflictos.xlsx file.
+current_year = 2024
+
 processed_df = extract_specific_columns(
     input_file="core/src/conflictos.xlsx",
     output_file="core/src/conflicts.xlsx",
-    custom_headers=custom_headers
+    custom_headers=custom_headers,
+    year=current_year # Pass the year explicitly
 )
 
 # Then, if the processing was successful, generate the jusTrue.xlsx file
@@ -5238,11 +5297,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Relativa</option>
                     <option value="patrimonio_var_abs" {% if request.GET.column == 'patrimonio_var_abs' %}selected{% endif %}>Patrimonio Var. Absoluta</option>
                     <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Relativa</option>
-                    <option value="apalancamiento_var_abs" {% if request.GET.column == 'apalancamiento_var_abs' %}selected{% endif %}>Apalancamiento Var. Absoluta</option>
-                    <option value="apalancamiento_var_rel" {% if request.GET.column == 'apalancamiento_var_rel' %}selected{% endif %}>Apalancamiento Var. Relativa</option>
-                    <option value="endeudamiento_var_abs" {% if request.GET.column == 'endeudamiento_var_abs' %}selected{% endif %}>Endeudamiento Var. Absoluta</option>
-                    <option value="endeudamiento_var_rel" {% if request.GET.column == 'endeudamiento_var_rel' %}selected{% endif %}>Endeudamiento Var. Relativa</option>
-                    <option value="banco_saldo" {% if request.GET.column == 'banco_saldo' %}selected{% endif %}>Banco Saldo</option>
                     <option value="bienes" {% if request.GET.column == 'bienes' %}selected{% endif %}>Bienes</option>
                     <option value="inversiones" {% if request.GET.column == 'inversiones' %}selected{% endif %}>Inversiones</option>
                     <option value="banco_saldo_var_abs" {% if request.GET.column == 'banco_saldo_var_abs' %}selected{% endif %}>Banco Saldo Var. Absoluta</option>
@@ -5750,9 +5804,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% for report in financial_reports %}
                         <tr {% if report.person.revisar %}class="table-warning"{% endif %} data-person-cedula="{{ report.person.cedula }}" data-ano-declaracion="{{ report.ano_declaracion }}">
                             <td>
-                                <a href="/admin/core/person/{{ report.person.cedula }}/change/" style="text-decoration: none;" title="{% if report.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
-                                    <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
-                                </a>
+                                {# Revert to a standard form submission #}
+                                <form action="{% url 'toggle_revisar_status' report.person.cedula %}" method="post" style="display:inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" {# CHANGED BACK to type="submit" #}
+                                            class="btn btn-link p-0 border-0 bg-transparent" {# Keep styling for icon appearance #}
+                                            title="{% if report.person.revisar %}Desmarcar para Revisar{% else %}Marcar para Revisar{% endif %}">
+                                        <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"
+                                        style="padding-left: 20px; font-size: 1.25rem;"></i>
+                                    </button>
+                                </form>
                             </td>
 
                             <td>{{ report.person.nombre_completo }}</td>
@@ -5772,12 +5833,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             </td>
                             
                             <td data-field="endeudamiento"
-                                {% if report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 > 70 %}
+                                {% if report.endeudamiento and report.endeudamiento > 70 %}
                                     style="color: red;"
-                                {% elif report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 >= 50 and report.endeudamiento|floatformat:"0"|add:0 <= 70 %}
+                                {% elif report.endeudamiento and report.endeudamiento >= 50 and report.endeudamiento <= 70 %}
                                     style="color: green;"
                                 {% endif %}>
-                                {{ report.endeudamiento|default:"0" }}
+                                {{ report.endeudamiento|floatformat:"2"|default:"0" }}
                             </td>
 
                             <td data-field="patrimonio">{{ report.patrimonio|floatformat:"0"|intcomma|default:"0" }}</td>
@@ -6111,122 +6172,134 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
     <div class="col-md-6 mb-4"> {# Column for Conflictos Declarados - half width #}
         <div class="card h-100"> {# Added h-100 for equal height #}
-            <div class="card-header bg-light">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Conflictos Declarados</h5>
+                {% if conflicts %}
+                <div class="form-group">
+                    <label for="conflict-select" class="sr-only">Seleccionar Conflicto</label>
+                    <select class="form-control" id="conflict-select">
+                        {% for conflict in conflicts %}
+                            <option value="{{ forloop.counter0 }}">Fecha Declaracion: {{ conflict.fecha_inicio|date:"d/m/Y"|default:"-" }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
             </div>
             <div class="card-body p-0">
                 {% if conflicts %}
                 {% for conflict in conflicts %}
-                <div class="table-responsive">
-                    <table class="table table-striped table-hover mb-0">
-                        <tbody>
-                            <tr>
-                                <th scope="row">Fecha de Inicio</th>
-                                <td>{{ conflict.fecha_inicio|date:"d/m/Y"|default:"-" }}</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Accionista de algun proveedor del grupo</th>
-                                <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q1_detalle and conflict.q1_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th> {# Empty header for alignment #}
-                                <td><small class="text-muted">{{ conflict.q1_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Familiar de algun accionista, proveedor o empleado</th>
-                                <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q2_detalle and conflict.q2_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q2_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Accionista de alguna compania del grupo</th>
-                                <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q3_detalle and conflict.q3_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q3_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Actividades extralaborales</th>
-                                <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q4_detalle and conflict.q4_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q4_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Negocios o bienes con empleados del grupo</th>
-                                <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q5_detalle and conflict.q5_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q5_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Participacion en juntas o consejos directivos</th>
-                                <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q6_detalle and conflict.q6_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q6_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Potencial conflicto diferente a los anteriores</th>
-                                <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q7_detalle and conflict.q7_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q7_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Consciente del codigo de conducta empresarial</th>
-                                <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
-                            </tr>
-                            {# Q8 and Q9 do not have detail fields, so no new rows for them #}
-                            <tr>
-                                <th scope="row">Veracidad de la informacion consignada</th>
-                                <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Familiar de algun funcionario publico</th>
-                                <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q10_detalle and conflict.q10_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q10_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Relacion con el sector publico o funcionario publico</th>
-                                <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            </tr>
-                            {% if conflict.q11_detalle and conflict.q11_detalle|lower != "nan" %}
-                            <tr>
-                                <th></th>
-                                <td><small class="text-muted">{{ conflict.q11_detalle|linebreaksbr }}</small></td>
-                            </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
+                <div class="conflict-table" id="conflict-table-{{ forloop.counter0 }}" {% if not forloop.first %}style="display: none;"{% endif %}>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover mb-0">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Fecha Declaracion</th>
+                                    <td>{{ conflict.fecha_inicio|date:"d/m/Y"|default:"-" }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Accionista de algun proveedor del grupo</th>
+                                    <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q1_detalle and conflict.q1_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th> {# Empty header for alignment #}
+                                    <td><small class="text-muted">{{ conflict.q1_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Familiar de algun accionista, proveedor o empleado</th>
+                                    <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q2_detalle and conflict.q2_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q2_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Accionista de alguna compania del grupo</th>
+                                    <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q3_detalle and conflict.q3_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q3_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Actividades extralaborales</th>
+                                    <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q4_detalle and conflict.q4_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q4_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Negocios o bienes con empleados del grupo</th>
+                                    <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q5_detalle and conflict.q5_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q5_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Participacion en juntas o consejos directivos</th>
+                                    <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q6_detalle and conflict.q6_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q6_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Potencial conflicto diferente a los anteriores</th>
+                                    <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q7_detalle and conflict.q7_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q7_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Consciente del codigo de conducta empresarial</th>
+                                    <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
+                                </tr>
+                                {# Q8 and Q9 do not have detail fields, so no new rows for them #}
+                                <tr>
+                                    <th scope="row">Veracidad de la informacion consignada</th>
+                                    <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Familiar de algun funcionario publico</th>
+                                    <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q10_detalle and conflict.q10_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q10_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th scope="row">Relacion con el sector publico o funcionario publico</th>
+                                    <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                                </tr>
+                                {% if conflict.q11_detalle and conflict.q11_detalle|lower != "nan" %}
+                                <tr>
+                                    <th></th>
+                                    <td><small class="text-muted">{{ conflict.q11_detalle|linebreaksbr }}</small></td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <hr> {% endfor %}
+                {% endfor %}
                 {% else %}
                 <p class="text-center py-4">No hay conflictos declarados disponibles</p>
                 {% endif %}
@@ -6258,8 +6331,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <th>Banco</th>
                                 <th>Bienes</th>
                                 <th>Inversiones</th>
-                                <th>Apalancamiento</th>
-                                <th>Endeudamiento</th>
+                                <th>% Apalancamiento</th>
+                                <th>% Endeudamiento</th>
                                 <th>Indice</th>
                             </tr>
                         </thead>
@@ -6376,12 +6449,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <td data-field="apalancamiento">{{ report.apalancamiento|floatformat:2|default:"0" }}</td>
 
                                 <td data-field="endeudamiento"
-                                    {% if report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 > 70 %}
+                                    {% if report.endeudamiento and report.endeudamiento > 70 %}
                                         style="color: red;"
-                                    {% elif report.endeudamiento and report.endeudamiento|floatformat:"0"|add:0 >= 50 and report.endeudamiento|floatformat:"0"|add:0 <= 70 %}
+                                    {% elif report.endeudamiento and report.endeudamiento >= 50 and report.endeudamiento <= 70 %}
                                         style="color: green;"
                                     {% endif %}>
-                                    {{ report.endeudamiento|default:"0" }}
+                                    {{ report.endeudamiento|floatformat:"2"|default:"0" }}
                                 </td>
                                 
                                 <td data-field="capital">&#36;{{ report.capital|floatformat:"0"|intcomma|default:"0" }}</td>
@@ -6389,7 +6462,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <tr>
                                 <th></th>
                                 <th scope="col">Cant.</th>
-                                <td></td>
+                                <td>0</td>
                                 <td data-field="cant_deudas"
                                     {% if report.cant_deudas >= 6 %}
                                         style="color: red;"
@@ -6399,9 +6472,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                     {{ report.cant_deudas|floatformat:"0"|intcomma|default:"0" }}
                                 </td>
                                 <td data-field="cant_ingresos">{{ report.cant_ingresos|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td></td>
                                 <td data-field="cant_cuentas">{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}</td>
-                                <td data-field="cant_bancos">{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }}</td>
+                                <td data-field="cant_bancos">B{{ report.cant_bancos|floatformat:"0"|intcomma|default:"0" }} C{{ report.cant_cuentas|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td data-field="cant_bienes">{{ report.cant_bienes|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td data-field="cant_inversiones">{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
                                 <td></td>
@@ -6423,7 +6495,25 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
 </div>
 <script src="{% static 'js/details.js' %}"></script>
-</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const conflictSelect = document.getElementById('conflict-select');
+        const conflictTables = document.querySelectorAll('.conflict-table');
+
+        if (conflictSelect) {
+            conflictSelect.addEventListener('change', function() {
+                const selectedIndex = this.value;
+                conflictTables.forEach((table, index) => {
+                    if (index == selectedIndex) {
+                        table.style.display = 'block';
+                    } else {
+                        table.style.display = 'none';
+                    }
+                });
+            });
+        }
+    });
+</script>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/details.html" -Encoding utf8
 
@@ -6546,9 +6636,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% for person in persons %}
                         <tr>
                             <td>
-                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="Marcado para revisar">
-                                    <i class="fas fa-check-square text-warning" style="padding-left: 20px;"></i>
-                                </a>
+                                {# Replace the existing <a> tag with a form that submits to your toggle view #}
+                                <form action="{% url 'toggle_revisar_status' person.cedula %}" method="post" style="display:inline;">
+                                    {% csrf_token %}
+                                    <button type="submit"
+                                            class="btn btn-link p-0 border-0 bg-transparent" {# Style button to look like a clickable icon #}
+                                            title="{% if person.revisar %}Desmarcar para Revisar{% else %}Marcar para Revisar{% endif %}">
+                                        <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"
+                                           style="padding-left: 20px; font-size: 1.25rem;"></i> {# Increased font-size for better clickability #}
+                                    </button>
+                                </form>
                             </td>
                             <td>{{ person.cedula }}</td>
                             <td>{{ person.nombre_completo }}</td>
