@@ -571,7 +571,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person, Conflict, FinancialReport, TCS # Import TCS
+from core.models import Person, Conflict, FinancialReport, TCS 
 from django.db.models import Q
 import subprocess
 import msoffcrypto
@@ -602,11 +602,6 @@ def toggle_revisar_status(request, cedula):
 
 # Helper function to clean and convert numeric values from strings
 def _clean_numeric_value(value):
-    """
-    Cleans a string value by removing non-numeric characters (except decimal and minus)
-    and attempts to convert it to a float. Handles percentage signs.
-    Returns None if conversion fails or value is NaN/empty.
-    """
     if pd.isna(value):
         return None
 
@@ -614,8 +609,6 @@ def _clean_numeric_value(value):
     if not str_value:
         return None
 
-    # Remove trend symbols and any non-numeric characters except '.', '-' and '%'
-    # Keep '%' for later handling
     numeric_part = re.sub(r'[^\d.%\-]', '', str_value)
 
     try:
@@ -1132,6 +1125,7 @@ def person_list(request):
 
     return render(request, 'persons.html', context)
 
+
 @login_required
 def export_persons_excel(request):
     search_query = request.GET.get('q', '')
@@ -1148,7 +1142,8 @@ def export_persons_excel(request):
         persons = persons.filter(
             Q(nombre_completo__icontains=search_query) |
             Q(cedula__icontains=search_query) |
-            Q(correo__icontains=search_query))
+            Q(correo__icontains=search_query)
+        )
 
     if status_filter:
         persons = persons.filter(estado=status_filter)
@@ -1159,14 +1154,73 @@ def export_persons_excel(request):
     if compania_filter:
         persons = persons.filter(compania=compania_filter)
 
+    # --- Add dynamic column filtering for FinancialReport fields ---
+    i = 0
+    while f'column_{i}' in request.GET:
+        column = request.GET.get(f'column_{i}')
+        operator = request.GET.get(f'operator_{i}')
+        value1 = request.GET.get(f'value_{i}')
+        value2 = request.GET.get(f'value2_{i}')
+
+        if column and operator and value1:
+            # Corrected: Use 'financial_reports' as the related name from Person to FinancialReport
+            filter_key = f'financial_reports__{column}' 
+
+            try:
+                # Remove commas from value1 and value2 before conversion
+                if isinstance(value1, str):
+                    value1 = value1.replace(',', '')
+                if isinstance(value2, str):
+                    value2 = value2.replace(',', '')
+
+                # Convert value1 to appropriate type based on common financial fields
+                if column in ['fk_id_periodo', 'ano_declaracion', 'cant_bienes', 'cant_bancos', 'cant_cuentas', 
+                              'cant_inversiones', 'cant_deudas', 'cant_ingresos']:
+                    value1 = int(float(value1)) # Convert to int if it's a count/ID
+                    if value2: value2 = int(float(value2))
+                else: # Assume float for monetary values and percentages
+                    value1 = float(value1)
+                    if value2: value2 = float(value2)
+            except (ValueError, TypeError):
+                # Handle cases where conversion fails (e.g., non-numeric input for numeric fields)
+                # You might want to log this or provide user feedback
+                value1 = None # Invalidate the filter if value is not convertible
+                value2 = None
+
+            if value1 is not None:
+                if operator == '>':
+                    persons = persons.filter(**{f'{filter_key}__gt': value1})
+                elif operator == '<':
+                    persons = persons.filter(**{f'{filter_key}__lt': value1})
+                elif operator == '=':
+                    persons = persons.filter(**{f'{filter_key}': value1})
+                elif operator == '>=':
+                    persons = persons.filter(**{f'{filter_key}__gte': value1})
+                elif operator == '<=':
+                    persons = persons.filter(**{f'{filter_key}__lte': value1})
+                elif operator == 'between' and value2 is not None:
+                    persons = persons.filter(**{f'{filter_key}__range': (min(value1, value2), max(value1, value2))})
+                elif operator == 'contains':
+                    # 'contains' operator is typically for text fields.
+                    # Ensure the column is a text field or handle accordingly.
+                    # For numeric fields, 'contains' usually doesn't make sense.
+                    persons = persons.filter(**{f'{filter_key}__icontains': str(value1)})
+        i += 1
+    # --- End dynamic column filtering ---
+
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
-    persons = persons.order_by(order_by)
+    persons = persons.order_by(order_by).distinct() # Use .distinct() to avoid duplicate persons if related objects cause issues
 
     # Prepare data for DataFrame
     data = []
     for person in persons:
-        data.append({
+        # Get the latest financial report for the person, or handle if there are multiple
+        # For simplicity, let's assume one relevant financial report or get the first one if multiple exist
+        # You might need to adjust this logic based on how you want to handle multiple reports per person
+        financial_report = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo').first()
+
+        row_data = {
             'ID': person.cedula,
             'Nombre Completo': person.nombre_completo,
             'Correo': person.correo,
@@ -1175,9 +1229,46 @@ def export_persons_excel(request):
             'Cargo': person.cargo,
             'Revisar': 'Sí' if person.revisar else 'No',
             'Comentarios': person.comments,
-            'Creado En': person.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            'Actualizado En': person.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-        })
+            'Creado En': person.created_at.strftime('%Y-%m-%d %H:%M:%S') if person.created_at else '',
+            'Actualizado En': person.updated_at.strftime('%Y-%m-%d %H:%M:%S') if person.updated_at else '',
+        }
+        
+        # Add financial report data if available
+        if financial_report:
+            row_data.update({
+                'Periodo': financial_report.fk_id_periodo,
+                'Ano': financial_report.ano_declaracion,
+                'Aum. Pat. Subito': financial_report.aum_pat_subito,
+                '% Endeudamiento': financial_report.endeudamiento,
+                'Patrimonio': financial_report.patrimonio,
+                'Patrimonio Var. Rel. %': financial_report.patrimonio_var_rel,
+                'Patrimonio Var. Abs. $': financial_report.patrimonio_var_abs,
+                'Activos': financial_report.activos,
+                'Activos Var. Rel. %': financial_report.activos_var_rel,
+                'Activos Var. Abs. $': financial_report.activos_var_abs,
+                'Pasivos': financial_report.pasivos,
+                'Pasivos Var. Rel. %': financial_report.pasivos_var_rel,
+                'Pasivos Var. Abs. $': financial_report.pasivos_var_abs,
+                'Cant. Deudas': financial_report.cant_deudas,
+                'Ingresos': financial_report.ingresos,
+                'Ingresos Var. Rel. %': financial_report.ingresos_var_rel,
+                'Ingresos Var. Abs. $': financial_report.ingresos_var_abs,
+                'Cant. Ingresos': financial_report.cant_ingresos,
+                'Bancos Saldo': financial_report.banco_saldo,
+                'Bancos Var. Rel. %': financial_report.banco_saldo_var_rel,
+                'Bancos Var. $': financial_report.banco_saldo_var_abs,
+                'Cant. Cuentas': financial_report.cant_cuentas,
+                'Cant. Bancos': financial_report.cant_bancos,
+                'Bienes Valor': financial_report.bienes,
+                'Bienes Var. Rel. %': financial_report.bienes_var_rel,
+                'Bienes Var. $': financial_report.bienes_var_abs,
+                'Cant. Bienes': financial_report.cant_bienes,
+                'Inversiones Valor': financial_report.inversiones,
+                'Inversiones Var. Rel. %': financial_report.inversiones_var_rel,
+                'Inversiones Var. $': financial_report.inversiones_var_abs,
+                'Cant. Inversiones': financial_report.cant_inversiones,
+            })
+        data.append(row_data)
 
     df = pd.DataFrame(data)
 
@@ -1191,7 +1282,6 @@ def export_persons_excel(request):
     response = HttpResponse(excel_file.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = f'attachment; filename="persons_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     return response
-
 
 @login_required
 def conflict_list(request):
@@ -5279,6 +5369,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </a>
     <a href="{% url 'import' %}" class="btn btn-custom-primary">
         <i class="fas fa-database"></i> 
+    </a>
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+        <i class="fas fa-file-excel" style="color: green;"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
