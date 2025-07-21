@@ -1242,73 +1242,112 @@ def conflict_list(request):
 
 @login_required
 def financial_report_list(request):
+    # Initialize a Q object to accumulate all filters
+    all_filters_q = Q()
+
+    # Handle the main search query 'q' (for person's name or cedula)
     search_query = request.GET.get('q', '')
-    compania_filter = request.GET.get('compania', '')
-    ano_declaracion_filter = request.GET.get('ano_declaracion', '')
-
-    # New filter parameters
-    column_to_filter = request.GET.get('column', '')
-    operator = request.GET.get('operator', '')
-    value1 = request.GET.get('value', '')
-    value2 = request.GET.get('value2', '')
-
-    order_by = request.GET.get('order_by', 'person__nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-
-    financial_reports = FinancialReport.objects.select_related('person').all()
-
     if search_query:
-        financial_reports = financial_reports.filter(
+        all_filters_q &= (
             Q(person__nombre_completo__icontains=search_query) |
             Q(person__cedula__icontains=search_query)
         )
 
+    # Handle existing 'compania' filter
+    compania_filter = request.GET.get('compania', '')
     if compania_filter:
-        financial_reports = financial_reports.filter(person__compania=compania_filter)
+        all_filters_q &= Q(person__compania=compania_filter)
 
+    # Handle existing 'ano_declaracion' filter
+    ano_declaracion_filter = request.GET.get('ano_declaracion', '')
     if ano_declaracion_filter:
-        financial_reports = financial_reports.filter(ano_declaracion=ano_declaracion_filter)
-
-    # Apply dynamic column filters
-    if column_to_filter and operator and value1:
         try:
-            if operator == '>':
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}__gt": _clean_numeric_value(value1)})
-            elif operator == '<':
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}__lt": _clean_numeric_value(value1)})
-            elif operator == '=':
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}": _clean_numeric_value(value1)})
-            elif operator == '>=':
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}__gte": _clean_numeric_value(value1)})
-            elif operator == '<=':
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}__lte": _clean_numeric_value(value1)})
-            elif operator == 'between' and value2:
-                val1 = _clean_numeric_value(value1)
-                val2 = _clean_numeric_value(value2)
-                if val1 is not None and val2 is not None:
-                    financial_reports = financial_reports.filter(**{f"{column_to_filter}__range": (min(val1, val2), max(val1, val2))})
-                else:
-                    messages.warning(request, "Invalid values for 'between' operator.")
-            elif operator == 'contains':
-                # 'contains' is typically for text fields. Ensure the field is text or convert.
-                financial_reports = financial_reports.filter(**{f"{column_to_filter}__icontains": value1})
-            else:
-                messages.warning(request, "Invalid operator selected.")
+            # Ensure it's an integer for exact match
+            ano_declaracion_int = int(ano_declaracion_filter)
+            all_filters_q &= Q(ano_declaracion=ano_declaracion_int)
         except ValueError:
-            messages.error(request, f"Error converting value for filter on {column_to_filter}.")
-        except Exception as e:
-            messages.error(request, f"Error applying filter: {e}")
+            messages.warning(request, "Año de declaración inválido.")
+
+    # Iterate through potential filter indices (e.g., column_0, column_1, etc.)
+    i = 0
+    while True:
+        # The names in the GET request will be like column_0, operator_0, value_0, value2_0
+        column = request.GET.get(f'column_{i}')
+        operator = request.GET.get(f'operator_{i}')
+        value1 = request.GET.get(f'value_{i}')
+        value2 = request.GET.get(f'value2_{i}') # For 'between' operator
+
+        # If no column is found for the current index, stop iterating
+        if not column:
+            break
+
+        # Only apply a filter if column, operator, and at least value1 are present
+        if column and operator and value1:
+            try:
+                if operator == '>':
+                    all_filters_q &= Q(**{f"{column}__gt": _clean_numeric_value(value1)})
+                elif operator == '<':
+                    all_filters_q &= Q(**{f"{column}__lt": _clean_numeric_value(value1)})
+                elif operator == '=':
+                    # For exact match, for numeric fields use _clean_numeric_value
+                    # For text fields, __iexact is often better than just =
+                    cleaned_value = _clean_numeric_value(value1)
+                    if cleaned_value is not None: # It's a number
+                        all_filters_q &= Q(**{f"{column}": cleaned_value})
+                    else: # Treat as text
+                        all_filters_q &= Q(**{f"{column}__iexact": value1})
+                elif operator == '>=':
+                    all_filters_q &= Q(**{f"{column}__gte": _clean_numeric_value(value1)})
+                elif operator == '<=':
+                    all_filters_q &= Q(**{f"{column}__lte": _clean_numeric_value(value1)})
+                elif operator == 'between' and value2:
+                    val1_cleaned = _clean_numeric_value(value1)
+                    val2_cleaned = _clean_numeric_value(value2)
+                    if val1_cleaned is not None and val2_cleaned is not None:
+                        # Ensure min/max for correct range
+                        all_filters_q &= Q(**{f"{column}__range": (min(val1_cleaned, val2_cleaned), max(val1_cleaned, val2_cleaned))})
+                    else:
+                        messages.warning(request, f"Valores inválidos para el filtro 'entre' en columna {column}.")
+                elif operator == 'contains':
+                    # 'contains' is typically for text fields. Use icontains for case-insensitivity.
+                    all_filters_q &= Q(**{f"{column}__icontains": value1})
+                else:
+                    messages.warning(request, f"Operador inválido '{operator}' para la columna {column}.")
+            except ValueError:
+                messages.error(request, f"Error al convertir valor para el filtro en {column}. Verifique el formato numérico.")
+            except Exception as e:
+                messages.error(request, f"Error inesperado al aplicar filtro en {column}: {e}")
+        
+        i += 1 # Move to the next potential filter index
+
+    # Apply all accumulated filters to the queryset
+    financial_reports = FinancialReport.objects.select_related('person').filter(all_filters_q)
+
+    # Ordering logic
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
+    
     financial_reports = financial_reports.order_by(order_by)
 
+    # Get distinct values for existing filters (Companias and Anos Declaracion)
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
     anos_declaracion = FinancialReport.objects.exclude(ano_declaracion__isnull=True).values_list('ano_declaracion', flat=True).distinct().order_by('ano_declaracion')
 
+    # Pagination
     paginator = Paginator(financial_reports, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
+
+    # Prepare all_params for pagination links to persist all GET parameters
+    all_params = request.GET.copy()
+    if 'page' in all_params:
+        del all_params['page']
+    
+    # Alert count
+    alerts_count = Person.objects.filter(revisar=True).count()
 
     context = {
         'financial_reports': page_obj,
@@ -1317,13 +1356,8 @@ def financial_report_list(request):
         'anos_declaracion': anos_declaracion,
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
-        # Pass back the filter values for persistence in the form
-        'selected_column': column_to_filter,
-        'selected_operator': operator,
-        'selected_value1': value1,
-        'selected_value2': value2,
-        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
+        'all_params': all_params, # This will now correctly include all column_X, operator_X, value_X params
+        'alerts_count': alerts_count,
     }
 
     return render(request, 'finances.html', context)
@@ -5258,96 +5292,99 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block content %}
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
-        <form method="get" action="." class="row g-3 align-items-center">
+        <form method="get" action="." class="row g-3 align-items-start"> {# Changed align-items-center to align-items-start #}
 
-            <div class="d-flex align-items-center">
-                <span class="badge bg-success">
+            <div class="d-flex align-items-center mb-3 col-12"> {# Added col-12 #}
+                <span class="badge bg-success me-2"> {# Added me-2 for margin #}
                     {{ page_obj.paginator.count }} registros
                 </span>
-                {% if request.GET.q or request.GET.compania or request.GET.ano_declaracion %}
-                {% endif %}
-            </div>
-            
-            <div class="col-md-3">
-                <input type="text" 
-                       name="q" 
-                       class="form-control form-control-lg" 
-                       placeholder="Buscar persona..." 
-                       value="{{ request.GET.q }}">
-            </div>
-            
-            <div class="col-md-3">
-                <select name="column" class="form-select form-select-lg">
-                    <option value="">Selecciona Columna</option>
-                    <option value="fk_id_periodo" {% if request.GET.column == 'fk_id_periodo' %}selected{% endif %}>Periodo ID</option>
-                    <option value="ano_declaracion" {% if request.GET.column == 'ano_declaracion' %}selected{% endif %}>Ano Declaracion</option>
-                    <option value="activos" {% if request.GET.column == 'activos' %}selected{% endif %}>Activos</option>
-                    <option value="cant_bienes" {% if request.GET.column == 'cant_bienes' %}selected{% endif %}>Cantidad Bienes</option>
-                    <option value="cant_bancos" {% if request.GET.column == 'cant_bancos' %}selected{% endif %}>Cantidad Bancos</option>
-                    <option value="cant_cuentas" {% if request.GET.column == 'cant_cuentas' %}selected{% endif %}>Cantidad Cuentas</option>
-                    <option value="cant_inversiones" {% if request.GET.column == 'cant_inversiones' %}selected{% endif %}>Cantidad Inversiones</option>
-                    <option value="pasivos" {% if request.GET.column == 'pasivos' %}selected{% endif %}>Pasivos</option>
-                    <option value="cant_deudas" {% if request.GET.column == 'cant_deudas' %}selected{% endif %}>Cantidad Deudas</option>
-                    <option value="patrimonio" {% if request.GET.column == 'patrimonio' %}selected{% endif %}>Patrimonio</option>
-                    <option value="endeudamiento" {% if request.GET.column == 'endeudamiento' %}selected{% endif %}>Endeudamiento</option>
-                    <option value="aum_pat_subito" {% if request.GET.column == 'aum_pat_subito' %}selected{% endif %}>Aumento Patrimonio Subito</option>
-                    <option value="activos_var_abs" {% if request.GET.column == 'activos_var_abs' %}selected{% endif %}>Activos Var. Absoluta</option>
-                    <option value="activos_var_rel" {% if request.GET.column == 'activos_var_rel' %}selected{% endif %}>Activos Var. Relativa</option>
-                    <option value="pasivos_var_abs" {% if request.GET.column == 'pasivos_var_abs' %}selected{% endif %}>Pasivos Var. Absoluta</option>
-                    <option value="pasivos_var_rel" {% if request.GET.column == 'pasivos_var_rel' %}selected{% endif %}>Pasivos Var. Relativa</option>
-                    <option value="patrimonio_var_abs" {% if request.GET.column == 'patrimonio_var_abs' %}selected{% endif %}>Patrimonio Var. Absoluta</option>
-                    <option value="patrimonio_var_rel" {% if request.GET.column == 'patrimonio_var_rel' %}selected{% endif %}>Patrimonio Var. Relativa</option>
-                    <option value="bienes" {% if request.GET.column == 'bienes' %}selected{% endif %}>Bienes</option>
-                    <option value="inversiones" {% if request.GET.column == 'inversiones' %}selected{% endif %}>Inversiones</option>
-                    <option value="banco_saldo_var_abs" {% if request.GET.column == 'banco_saldo_var_abs' %}selected{% endif %}>Banco Saldo Var. Absoluta</option>
-                    <option value="banco_saldo_var_rel" {% if request.GET.column == 'banco_saldo_var_rel' %}selected{% endif %}>Banco Saldo Var. Relativa</option>
-                    <option value="bienes_var_abs" {% if request.GET.column == 'bienes_var_abs' %}selected{% endif %}>Bienes Var. Absoluta</option>
-                    <option value="bienes_var_rel" {% if request.GET.column == 'bienes_var_rel' %}selected{% endif %}>Bienes Var. Relativa</option>
-                    <option value="inversiones_var_abs" {% if request.GET.column == 'inversiones_var_abs' %}selected{% endif %}>Inversiones Var. Absoluta</option>
-                    <option value="inversiones_var_rel" {% if request.GET.column == 'inversiones_var_rel' %}selected{% endif %}>Inversiones Var. Relativa</option>
-                    <option value="ingresos" {% if request.GET.column == 'ingresos' %}selected{% endif %}>Ingresos</option>
-                    <option value="cant_ingresos" {% if request.GET.column == 'cant_ingresos' %}selected{% endif %}>Cantidad Ingresos</option>
-                    <option value="ingresos_var_abs" {% if request.GET.column == 'ingresos_var_abs' %}selected{% endif %}>Ingresos Var. Absoluta</option>
-                    <option value="ingresos_var_rel" {% if request.GET.column == 'ingresos_var_rel' %}selected{% endif %}>Ingresos Var. Relativa</option>
-                </select>
-            </div>
-            
-            <div class="col-md-2">
-                <select name="operator" class="form-select form-select-lg" onchange="toggleValueInput()">
-                    <option value="">Selecciona operador</option>
-                    <option value=">" {% if request.GET.operator == '>' %}selected{% endif %}>Mayor que</option>
-                    <option value="<" {% if request.GET.operator == '<' %}selected{% endif %}>Menor que</option>
-                    <option value="=" {% if request.GET.operator == '=' %}selected{% endif %}>Igual a</option>
-                    <option value=">=" {% if request.GET.operator == '>=' %}selected{% endif %}>Mayor o igual</option>
-                    <option value="<=" {% if request.GET.operator == '<=' %}selected{% endif %}>Menor o igual</option>
-                    <option value="between" {% if request.GET.operator == 'between' %}selected{% endif %}>Entre</option>
-                    <option value="contains" {% if request.GET.operator == 'contains' %}selected{% endif %}>Contiene</option>
-                </select>
-            </div>
-            
-            <div class="col-md-2" id="value1-container">
-                <input type="text"
-                    name="value"
-                    id="value1"
-                    class="form-control form-control-lg"
-                    placeholder="Valor"
-                    value="{{ request.GET.value|default:'' }}">
+                {% comment %} Removed the if block here as it was empty {% endcomment %}
             </div>
 
-            <div class="col-md-2" id="value2-container" style="display: none;"> {# Initially hidden #}
-                <input type="text"
-                    name="value2"
-                    id="value2"
-                    class="form-control form-control-lg"
-                    placeholder="Segundo Valor"
-                    value="{{ request.GET.value2|default:'' }}">
-            </div>
-            
-            <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
-                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
-            </div>
-        </form>
+            <div id="filter-rows-container" class="col-md-9 row g-3">
+                <div class="col-md-3">
+                    <input type="text" 
+                        name="q" 
+                        class="form-control form-control-lg" 
+                        placeholder="Buscar persona..." 
+                        value="{{ request.GET.q|default:'' }}">
+                </div>
+
+                <div class="filter-group-template" style="display: none;">
+                    <div class="filter-group row g-3 align-items-center">
+                        <div class="col-md-4">
+                            <select name="column_X" class="form-select form-select-lg column-select">
+                                <option value="">Selecciona Columna</option>
+                                <option value="fk_id_periodo">Periodo ID</option>
+                                <option value="ano_declaracion">Ano Declaracion</option>
+                                <option value="activos">Activos</option>
+                                <option value="cant_bienes">Cantidad Bienes</option>
+                                <option value="cant_bancos">Cantidad Bancos</option>
+                                <option value="cant_cuentas">Cantidad Cuentas</option>
+                                <option value="cant_inversiones">Cantidad Inversiones</option>
+                                <option value="pasivos">Pasivos</option>
+                                <option value="cant_deudas">Cantidad Deudas</option>
+                                <option value="patrimonio">Patrimonio</option>
+                                <option value="endeudamiento">Endeudamiento</option>
+                                <option value="aum_pat_subito">Aumento Patrimonio Subito</option>
+                                <option value="activos_var_abs">Activos Var. Absoluta</option>
+                                <option value="activos_var_rel">Activos Var. Relativa</option>
+                                <option value="pasivos_var_abs">Pasivos Var. Absoluta</option>
+                                <option value="pasivos_var_rel">Pasivos Var. Relativa</option>
+                                <option value="patrimonio_var_abs">Patrimonio Var. Absoluta</option>
+                                <option value="patrimonio_var_rel">Patrimonio Var. Relativa</option>
+                                <option value="bienes">Bienes</option>
+                                <option value="inversiones">Inversiones</option>
+                                <option value="banco_saldo_var_abs">Banco Saldo Var. Absoluta</option>
+                                <option value="banco_saldo_var_rel">Banco Saldo Var. Relativa</option>
+                                <option value="bienes_var_abs">Bienes Var. Absoluta</option>
+                                <option value="bienes_var_rel">Bienes Var. Relativa</option>
+                                <option value="inversiones_var_abs">Inversiones Var. Absoluta</option>
+                                <option value="inversiones_var_rel">Inversiones Var. Relativa</option>
+                                <option value="ingresos">Ingresos</option>
+                                <option value="cant_ingresos">Cantidad Ingresos</option>
+                                <option value="ingresos_var_abs">Ingresos Var. Absoluta</option>
+                                <option value="ingresos_var_rel">Ingresos Var. Relativa</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <select name="operator_X" class="form-select form-select-lg operator-select">
+                                <option value="">Selecciona operador</option>
+                                <option value=">">Mayor que</option>
+                                <option value="<">Menor que</option>
+                                <option value="=">Igual a</option>
+                                <option value=">=">Mayor o igual</option>
+                                <option value="<=">Menor o igual</option>
+                                <option value="between">Entre</option>
+                                <option value="contains">Contiene</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3 value1-container">
+                            <input type="text"
+                                name="value_X"
+                                class="form-control form-control-lg value1-input"
+                                placeholder="Valor">
+                        </div>
+
+                        <div class="col-md-2 value2-container" style="display: none;">
+                            <input type="text"
+                                name="value2_X"
+                                class="form-control form-control-lg value2-input"
+                                placeholder="Segundo Valor">
+                        </div>
+                        <div class="col-md-1 d-flex justify-content-center"> {# Added d-flex justify-content-center for button alignment #}
+                            <button type="button" class="btn btn-danger remove-filter-btn"><i class="fas fa-minus"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div> 
+                <div class="col-12 d-flex gap-2 justify-content-end mt-3"> {# Added mt-3 for top margin #}
+                    <button type="button" class="btn btn-custom-primary btn-lg" id="add-filter-btn"><i class="fas fa-plus"></i></button>
+                    <button type="submit" class="btn btn-custom-primary btn-lg"><i class="fas fa-filter"></i></button>
+                    <a href="." class="btn btn-custom-primary btn-lg"><i class="fas fa-undo"></i></a>
+                </div>
     </div>
 </div>
 
@@ -5572,7 +5609,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             </a>
                         </th>
                         
-                        <th data-column-index="8">
+                        <th data-column-index="8"> {# Adjusted index #}
                             <button class="btn btn-sm btn-outline-secondary freeze-column-btn" data-column-index="8" title="Congelar columna">
                                 <i class="fas fa-thumbtack"></i>
                             </button>
@@ -5962,7 +5999,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% empty %}
                         <tr>
                             <td colspan="37" class="text-center py-4"> {# Adjusted colspan #}
-                                {% if request.GET.q or request.GET.column or request.GET.operator or request.GET.value %}
+                                {% if request.GET.q or request.GET.column_0 or request.GET.operator_0 or request.GET.value_0 %}
                                     Sin reportes financieros que coincidan con los filtros.
                                 {% else %}
                                     Sin reportes financieros
@@ -6018,45 +6055,106 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
 
 <script>
-    function toggleValueInput() {
-        var operatorSelect = document.querySelector('select[name="operator"]');
-        var value2Container = document.getElementById('value2-container');
-        var value1Input = document.getElementById('value1'); // Get the first value input
+    let filterCount = 0; // Global counter for filter groups
+
+    // Function to show/hide value2 input based on operator
+    function toggleValueInput(selectElement) {
+        const filterGroup = selectElement.closest('.filter-group');
+        const value1Container = filterGroup.querySelector('.value1-container');
+        const value1Input = filterGroup.querySelector('.value1-input');
+        const value2Container = filterGroup.querySelector('.value2-container');
+        const operatorSelect = selectElement;
 
         if (operatorSelect.value === 'between') {
             value2Container.style.display = 'block';
-            value1Input.placeholder = "Primer Valor"; // Change placeholder for clarity
+            value1Input.placeholder = "Primer Valor";
+            value1Container.classList.remove('col-md-3');
+            value1Container.classList.add('col-md-2');
         } else {
             value2Container.style.display = 'none';
-            value1Input.placeholder = "Valor"; // Reset placeholder
+            value2Container.querySelector('.value2-input').value = ''; // Clear value2 when hidden
+            value1Input.placeholder = "Valor";
+            value1Container.classList.remove('col-md-2');
+            value1Container.classList.add('col-md-3');
         }
     }
 
-    // Call on page load to set initial state based on current selection
-    document.addEventListener('DOMContentLoaded', toggleValueInput);
+    // Function to add a new filter group
+    function addFilterGroup(initialValues = {}) {
+        const filterContainer = document.getElementById('filter-rows-container');
+        const template = document.querySelector('.filter-group-template .filter-group');
+        const newFilterGroup = template.cloneNode(true);
+        newFilterGroup.style.display = 'flex'; // Make the cloned element visible
 
-    // Add this to your JavaScript in finances.js or inline script:
+        const currentIndex = filterCount++;
+        
+        newFilterGroup.querySelectorAll('select, input').forEach(input => {
+            const oldName = input.name;
+            // Replace '_X' placeholder with actual index
+            input.name = oldName.replace('_X', '_' + currentIndex);
+            input.id = input.name; // Assign an ID based on the name
+
+            // Set initial values if provided
+            if (initialValues[input.name]) {
+                input.value = initialValues[input.name];
+            } else {
+                input.value = ''; // Clear values for newly added empty filters
+            }
+            
+            // Reset placeholder for value1 inputs
+            if (input.classList.contains('value1-input')) {
+                input.placeholder = "Valor";
+            }
+        });
+
+        // Set up event listeners for the new filter group
+        const newOperatorSelect = newFilterGroup.querySelector('.operator-select');
+        newOperatorSelect.onchange = function() { toggleValueInput(this); };
+
+        const removeButton = newFilterGroup.querySelector('.remove-filter-btn');
+        removeButton.onclick = function() {
+            newFilterGroup.remove();
+        };
+
+        filterContainer.appendChild(newFilterGroup);
+
+        // Apply toggleValueInput logic based on the operator's initial value (if loaded from GET)
+        toggleValueInput(newOperatorSelect);
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
-        // Set selected values for dropdowns
-        const columnSelect = document.querySelector('select[name="column"]');
-        if (columnSelect && "{{ selected_column }}" !== "") {
-            columnSelect.value = "{{ selected_column }}";
+        const urlParams = new URLSearchParams(window.location.search);
+        let hasFilters = false;
+        
+        // This loop checks for the existence of 'column_i' or 'value_i' to determine if a filter was applied.
+        let tempFilterIndex = 0;
+        while (urlParams.has('column_' + tempFilterIndex) || 
+               urlParams.has('operator_' + tempFilterIndex) || 
+               urlParams.has('value_' + tempFilterIndex) ||
+               urlParams.has('value2_' + tempFilterIndex)) {
+            
+            const initialValues = {};
+            initialValues['column_' + tempFilterIndex] = urlParams.get('column_' + tempFilterIndex);
+            initialValues['operator_' + tempFilterIndex] = urlParams.get('operator_' + tempFilterIndex);
+            initialValues['value_' + tempFilterIndex] = urlParams.get('value_' + tempFilterIndex);
+            initialValues['value2_' + tempFilterIndex] = urlParams.get('value2_' + tempFilterIndex);
+
+            addFilterGroup(initialValues);
+            hasFilters = true;
+            tempFilterIndex++;
         }
 
-        const operatorSelect = document.querySelector('select[name="operator"]');
-        if (operatorSelect && "{{ selected_operator }}" !== "") {
-            operatorSelect.value = "{{ selected_operator }}";
-            toggleValueInput(); // Call to adjust value2 visibility
+        // If no filters were present in the URL, add one blank filter group
+        if (!hasFilters) {
+            addFilterGroup();
         }
 
-        const value1Input = document.getElementById('value1');
-        if (value1Input && "{{ selected_value1 }}" !== "") {
-            value1Input.value = "{{ selected_value1 }}";
-        }
-
-        const value2Input = document.getElementById('value2');
-        if (value2Input && "{{ selected_value2 }}" !== "") {
-            value2Input.value = "{{ selected_value2 }}";
+        // Add event listener for the 'Add Filter' button
+        const addFilterButton = document.getElementById('add-filter-btn');
+        if (addFilterButton) {
+            addFilterButton.addEventListener('click', function() {
+                addFilterGroup({});
+            });
         }
     });
 </script>
