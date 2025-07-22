@@ -1126,17 +1126,24 @@ def person_list(request):
     return render(request, 'persons.html', context)
 
 
+# In your views.py file
+
 @login_required
 def export_persons_excel(request):
     search_query = request.GET.get('q', '')
     status_filter = request.GET.get('status', '')
     cargo_filter = request.GET.get('cargo', '')
     compania_filter = request.GET.get('compania', '')
+    revisar_filter = request.GET.get('revisar', '') # <--- Add this line to get the 'revisar' parameter
 
     order_by = request.GET.get('order_by', 'nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
 
     persons = Person.objects.all()
+
+    # Apply the 'revisar' filter if present in the URL
+    if revisar_filter == 'True': # <--- Add this block
+        persons = persons.filter(revisar=True)
 
     if search_query:
         persons = persons.filter(
@@ -1164,7 +1171,7 @@ def export_persons_excel(request):
 
         if column and operator and value1:
             # Corrected: Use 'financial_reports' as the related name from Person to FinancialReport
-            filter_key = f'financial_reports__{column}' 
+            filter_key = f'financial_reports__{column}'
 
             try:
                 # Remove commas from value1 and value2 before conversion
@@ -1174,7 +1181,7 @@ def export_persons_excel(request):
                     value2 = value2.replace(',', '')
 
                 # Convert value1 to appropriate type based on common financial fields
-                if column in ['fk_id_periodo', 'ano_declaracion', 'cant_bienes', 'cant_bancos', 'cant_cuentas', 
+                if column in ['fk_id_periodo', 'ano_declaracion', 'cant_bienes', 'cant_bancos', 'cant_cuentas',
                               'cant_inversiones', 'cant_deudas', 'cant_ingresos']:
                     value1 = int(float(value1)) # Convert to int if it's a count/ID
                     if value2: value2 = int(float(value2))
@@ -1232,7 +1239,7 @@ def export_persons_excel(request):
             'Creado En': person.created_at.strftime('%Y-%m-%d %H:%M:%S') if person.created_at else '',
             'Actualizado En': person.updated_at.strftime('%Y-%m-%d %H:%M:%S') if person.updated_at else '',
         }
-        
+
         # Add financial report data if available
         if financial_report:
             row_data.update({
@@ -5491,12 +5498,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
 
             <div id="filter-rows-container" class="col-md-9 row g-3">
-                <div class="col-md-3">
-                    <input type="text" 
-                        name="q" 
-                        class="form-control form-control-lg" 
-                        placeholder="Buscar persona..." 
+                <div class="col-md-3 d-flex"> {# Added d-flex to make input and button align horizontally #}
+                    <input type="text"
+                        name="q"
+                        class="form-control form-control-lg me-2" {# Added me-2 for margin between input and button #}
+                        placeholder="Buscar persona..."
                         value="{{ request.GET.q|default:'' }}">
+                    <button type="button" class="btn btn-custom-primary btn-lg" id="filter-revisar-btn" title="Filtrar por 'Revisar'"><i class="fas fa-check-square"></i></button>
                 </div>
 
                 <div class="filter-group-template" style="display: none;">
@@ -6276,7 +6284,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         newFilterGroup.style.display = 'flex'; // Make the cloned element visible
 
         const currentIndex = filterCount++;
-        
+
         newFilterGroup.querySelectorAll('select, input').forEach(input => {
             const oldName = input.name;
             // Replace '_X' placeholder with actual index
@@ -6289,7 +6297,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             } else {
                 input.value = ''; // Clear values for newly added empty filters
             }
-            
+
             // Reset placeholder for value1 inputs
             if (input.classList.contains('value1-input')) {
                 input.placeholder = "Valor";
@@ -6314,14 +6322,14 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
         let hasFilters = false;
-        
+
         // This loop checks for the existence of 'column_i' or 'value_i' to determine if a filter was applied.
         let tempFilterIndex = 0;
-        while (urlParams.has('column_' + tempFilterIndex) || 
-               urlParams.has('operator_' + tempFilterIndex) || 
+        while (urlParams.has('column_' + tempFilterIndex) ||
+               urlParams.has('operator_' + tempFilterIndex) ||
                urlParams.has('value_' + tempFilterIndex) ||
                urlParams.has('value2_' + tempFilterIndex)) {
-            
+
             const initialValues = {};
             initialValues['column_' + tempFilterIndex] = urlParams.get('column_' + tempFilterIndex);
             initialValues['operator_' + tempFilterIndex] = urlParams.get('operator_' + tempFilterIndex);
@@ -6345,6 +6353,70 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 addFilterGroup({});
             });
         }
+
+        // --- MODIFIED JAVASCRIPT FOR "Revisar" FILTER BUTTON AND CLIENT-SIDE FILTERING ---
+        const filterRevisarButton = document.getElementById('filter-revisar-btn');
+        if (filterRevisarButton) {
+            filterRevisarButton.addEventListener('click', function() {
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.delete('q'); // Clear any existing search query
+                currentUrl.searchParams.delete('page'); // Reset pagination
+
+                // Clear all existing dynamic filters
+                let i = 0;
+                while (currentUrl.searchParams.has('column_' + i) ||
+                       currentUrl.searchParams.has('operator_' + i) ||
+                       currentUrl.searchParams.has('value_' + i) ||
+                       currentUrl.searchParams.has('value2_' + i)) {
+                    currentUrl.searchParams.delete('column_' + i);
+                    currentUrl.searchParams.delete('operator_' + i);
+                    currentUrl.searchParams.delete('value_' + i);
+                    currentUrl.searchParams.delete('value2_' + i);
+                    i++;
+                }
+
+                // Toggle the "revisar" filter
+                if (currentUrl.searchParams.get('revisar') === 'True') {
+                    currentUrl.searchParams.delete('revisar');
+                } else {
+                    currentUrl.searchParams.set('revisar', 'True');
+                }
+
+                window.location.href = currentUrl.toString();
+            });
+        }
+
+        // Client-side filtering if 'revisar=True' is in the URL
+        if (urlParams.get('revisar') === 'True') {
+            const tableRows = document.querySelectorAll('tbody tr');
+            tableRows.forEach(row => {
+                // Check if the row has the 'table-warning' class which indicates 'revisar' status
+                if (!row.classList.contains('table-warning')) {
+                    row.style.display = 'none'; // Hide rows that are not marked for review
+                }
+            });
+
+            // Adjust the records count badge
+            const recordCountBadge = document.querySelector('.badge.bg-success');
+            if (recordCountBadge) {
+                let visibleRows = 0;
+                document.querySelectorAll('tbody tr').forEach(row => {
+                    if (row.style.display !== 'none') {
+                        visibleRows++;
+                    }
+                });
+                recordCountBadge.textContent = visibleRows + ' registros';
+            }
+
+            // Hide pagination if only 'revisar' rows are shown and there might be no more pages
+            const paginationDiv = document.querySelector('.p-3');
+            if (paginationDiv) {
+                // You might need more sophisticated logic here based on your Django pagination.
+                // For simplicity, we'll hide it if we're filtering client-side.
+                paginationDiv.style.display = 'none';
+            }
+        }
+        // --- END OF MODIFIED JAVASCRIPT ---
     });
 </script>
 
