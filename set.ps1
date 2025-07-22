@@ -68,25 +68,25 @@ class Conflict(models.Model):
     )
     ano = models.IntegerField(null=True, blank=True)
     fecha_inicio = models.DateField(null=True, blank=True)
-    q1 = models.BooleanField(default=False)
+    q1 = models.BooleanField(null=True, blank=True) 
     q1_detalle = models.TextField(blank=True)
-    q2 = models.BooleanField(default=False)
+    q2 = models.BooleanField(null=True, blank=True) 
     q2_detalle = models.TextField(blank=True)
-    q3 = models.BooleanField(default=False)
+    q3 = models.BooleanField(null=True, blank=True) 
     q3_detalle = models.TextField(blank=True)
-    q4 = models.BooleanField(default=False)
+    q4 = models.BooleanField(null=True, blank=True) 
     q4_detalle = models.TextField(blank=True)
-    q5 = models.BooleanField(default=False)
+    q5 = models.BooleanField(null=True, blank=True) 
     q5_detalle = models.TextField(blank=True)
-    q6 = models.BooleanField(default=False)
+    q6 = models.BooleanField(null=True, blank=True) 
     q6_detalle = models.TextField(blank=True)
-    q7 = models.BooleanField(default=False)
+    q7 = models.BooleanField(null=True, blank=True) 
     q7_detalle = models.TextField(blank=True)
-    q8 = models.BooleanField(default=False)
-    q9 = models.BooleanField(default=False)
-    q10 = models.BooleanField(default=False)
+    q8 = models.BooleanField(null=True, blank=True) 
+    q9 = models.BooleanField(null=True, blank=True) 
+    q10 = models.BooleanField(null=True, blank=True) 
     q10_detalle = models.TextField(blank=True)
-    q11 = models.BooleanField(default=False)
+    q11 = models.BooleanField(null=True, blank=True) 
     q11_detalle = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -884,20 +884,25 @@ def import_conflicts(request):
     if request.method == 'POST' and request.FILES.get('conflict_excel_file'):
         excel_file = request.FILES['conflict_excel_file']
         try:
-            dest_path = os.path.join(settings.BASE_DIR, "core", "src", "conflictos.xlsx") # Use os.path.join
+            dest_path = os.path.join(settings.BASE_DIR, "core", "src", "conflictos.xlsx")
             with open(dest_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR) # Add cwd
+            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
 
-            # Re-import pandas and models within the function if they are not globally available or to ensure fresh import
             import pandas as pd
             from core.models import Person, Conflict
 
-            processed_file = os.path.join(settings.BASE_DIR, "core", "src", "conflicts.xlsx") # Use os.path.join
+            processed_file = os.path.join(settings.BASE_DIR, "core", "src", "conflicts.xlsx")
             df = pd.read_excel(processed_file)
             df.columns = df.columns.str.lower().str.replace(' ', '_')
+
+            # Helper function to process boolean fields
+            def get_boolean_value(value):
+                if pd.isna(value):
+                    return None  # Return None for NaN/empty values
+                return bool(value) # Convert to boolean otherwise
 
             for _, row in df.iterrows():
                 try:
@@ -911,43 +916,38 @@ def import_conflicts(request):
                         }
                     )
 
-                    # Convert date string to date object for lookup
                     fecha_inicio_str = row.get('fecha_de_inicio')
                     fecha_inicio_date = None
                     if pd.notna(fecha_inicio_str):
                         try:
-                            # Assuming the format is 'YYYY-MM-DD HH:MM:SS' from pandas to_datetime
-                            # or 'DD/MM/YYYY' if it's still a string
                             fecha_inicio_date = pd.to_datetime(fecha_inicio_str).date()
                         except ValueError:
                             messages.warning(request, f"Could not parse date '{fecha_inicio_str}' for conflict. Skipping row.")
-                            continue # Skip this row if date is unparseable
+                            continue
 
-
-                    # IMPORTANT CHANGE HERE: Include fecha_inicio in the lookup criteria
                     Conflict.objects.update_or_create(
                         person=person,
-                        fecha_inicio=fecha_inicio_date, # Use the parsed date as part of the unique key
+                        fecha_inicio=fecha_inicio_date,
                         defaults={
-                            'q1': not pd.isna(row.get('q1')) and bool(row.get('q1', False)),
+                            'q1': get_boolean_value(row.get('q1')), # Changed
                             'q1_detalle': row.get('q1_detalle', ''),
-                            'q2': not pd.isna(row.get('q2')) and bool(row.get('q2', False)),
+                            'q2': get_boolean_value(row.get('q2')), # Changed
                             'q2_detalle': row.get('q2_detalle', ''),
-                            'q3': not pd.isna(row.get('q3')) and bool(row.get('q3', False)),
+                            'q3': get_boolean_value(row.get('q3')), # Changed
                             'q3_detalle': row.get('q3_detalle', ''),
-                            'q4': not pd.isna(row.get('q4')) and bool(row.get('q4', False)),
+                            'q4': get_boolean_value(row.get('q4')), # Changed
                             'q4_detalle': row.get('q4_detalle', ''),
-                            'q5': not pd.isna(row.get('q5')) and bool(row.get('q5', False)),
+                            'q5': get_boolean_value(row.get('q5')), # Changed
                             'q5_detalle': row.get('q5_detalle', ''),
-                            'q6': not pd.isna(row.get('q6')) and bool(row.get('q6', False)),
+                            'q6': get_boolean_value(row.get('q6')), # Changed
                             'q6_detalle': row.get('q6_detalle', ''),
-                            'q7': not pd.isna(row.get('q7')) and bool(row.get('q7', False)),
+                            'q7': get_boolean_value(row.get('q7')), # Changed
                             'q7_detalle': row.get('q7_detalle', ''),
-                            'q8': not pd.isna(row.get('q8')) and bool(row.get('q8', False)),
-                            'q9': not pd.isna(row.get('q9')) and bool(row.get('q9', False)),
-                            'q10': not pd.isna(row.get('q10')) and bool(row.get('q10', False)),
+                            'q8': get_boolean_value(row.get('q8')), # Changed
+                            'q9': get_boolean_value(row.get('q9')), # Changed
+                            'q10': get_boolean_value(row.get('q10')), # Changed
                             'q10_detalle': row.get('q10_detalle', ''),
-                            'q11': not pd.isna(row.get('q11')) and bool(row.get('q11', False)),
+                            'q11': get_boolean_value(row.get('q11')), # Changed
                             'q11_detalle': row.get('q11_detalle', '')
                         }
                     )
@@ -1283,48 +1283,65 @@ def export_persons_excel(request):
     response['Content-Disposition'] = f'attachment; filename="persons_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     return response
 
-@login_required
 def conflict_list(request):
-    search_query = request.GET.get('q', '')
-    compania_filter = request.GET.get('compania', '')
-    column_filter = request.GET.get('column', '')
-    answer_filter = request.GET.get('answer', '')
-
-    order_by = request.GET.get('order_by', 'person__nombre_completo')
-    sort_direction = request.GET.get('sort_direction', 'asc')
-
+    """View for displaying a list of conflicts with search and filter options."""
     conflicts = Conflict.objects.select_related('person').all()
+    q = request.GET.get('q')
+    compania = request.GET.get('compania')
+    column = request.GET.get('column')
+    answer = request.GET.get('answer')
+    order_by = request.GET.get('order_by', 'created_at')
+    sort_direction = request.GET.get('sort_direction', 'desc')
 
-    if search_query:
+    if q:
         conflicts = conflicts.filter(
-            Q(person__nombre_completo__icontains=search_query) |
-            Q(person__cedula__icontains=search_query) |
-            Q(person__correo__icontains=search_query))
+            Q(person__nombre_completo__icontains=q) |
+            Q(person__cedula__icontains=q)
+        )
 
-    if compania_filter:
-        conflicts = conflicts.filter(person__compania=compania_filter)
+    if compania:
+        conflicts = conflicts.filter(person__compania=compania)
 
-    if column_filter and answer_filter:
-        filter_kwargs = {f"{column_filter}": answer_filter.lower() == 'yes'}
-        conflicts = conflicts.filter(**filter_kwargs)
+    if column and answer:
+        filter_kwargs = {}
+        if answer == 'yes':
+            filter_kwargs[f'{column}'] = True
+            conflicts = conflicts.filter(**filter_kwargs)
+        elif answer == 'no':
+            filter_kwargs[f'{column}'] = False
+            conflicts = conflicts.filter(**filter_kwargs)
+        elif answer == 'blank': # New condition for 'En Blanco'
+            filter_kwargs[f'{column}__isnull'] = True
+            conflicts = conflicts.filter(**filter_kwargs)
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     conflicts = conflicts.order_by(order_by)
 
-    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    # Get unique companies for the filter dropdown
+    companias = Person.objects.values_list('compania', flat=True).distinct().order_by('compania')
 
-    paginator = Paginator(conflicts, 25)
+    # Pagination
+    paginator = Paginator(conflicts, 10) # Show 10 conflicts per page
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
+
+    # Preserve all current GET parameters for pagination and sorting links
+    all_params = request.GET.copy()
+    if 'page' in all_params:
+        del all_params['page']
+    if 'order_by' in all_params:
+        del all_params['order_by']
+    if 'sort_direction' in all_params:
+        del all_params['sort_direction']
+
 
     context = {
         'conflicts': page_obj,
         'page_obj': page_obj,
         'companias': companias,
         'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
+        'current_direction': sort_direction,
         'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
     }
 
@@ -1813,7 +1830,6 @@ def alerts_list(request):
 
 # Create core/conflicts.py
 Set-Content -Path "core/conflicts.py" -Value @"
-# conflicts.py
 import pandas as pd
 import os
 from openpyxl.utils import get_column_letter
@@ -1837,7 +1853,6 @@ def extract_specific_columns(input_file, output_file, custom_headers=None, year=
         extra_cols = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
         selected_cols = [col for col in base_cols + extra_cols if col < df.shape[1]]
 
-        # Extract data with headers
         # This operation itself selects all rows from index 3 onwards for the selected columns
         result = df.iloc[3:, selected_cols].copy()
         result.columns = df.iloc[2, selected_cols].values
@@ -1847,12 +1862,10 @@ def extract_specific_columns(input_file, output_file, custom_headers=None, year=
         # Apply custom headers if provided
         if custom_headers is not None:
             if len(custom_headers) != len(result.columns):
-                # This check might fail if 'Año' is in custom_headers but not directly from Excel
                 # Revisit this check if 'Año' is added directly into custom_headers list
                 raise ValueError(f"Custom headers count ({len(custom_headers)}) doesn't match column count ({len(result.columns)})")
             result.columns = custom_headers
             print(f"Columns after applying custom headers: {result.columns.tolist()}")
-
 
         # Add the 'Año' column to the result DataFrame
         if year is not None:
@@ -1868,9 +1881,9 @@ def extract_specific_columns(input_file, output_file, custom_headers=None, year=
                 result['Año'] = pd.NA # Or a default value if preferred
 
         # Ensure 'Nombre' concatenation handles all rows
-        primer_nombre_col_idx = 3 # This corresponds to column D in input file
-        primer_apellido_col_idx = 4 # This corresponds to column E in input file
-        segundo_apellido_col_idx = 5 # This corresponds to column F in input file
+        primer_nombre_col_idx = 3 
+        primer_apellido_col_idx = 4 
+        segundo_apellido_col_idx = 5 
 
         if primer_nombre_col_idx < df.shape[1] and primer_apellido_col_idx < df.shape[1] and segundo_apellido_col_idx < df.shape[1]:
             temp_df_for_name = df.iloc[3:, [2, 3, 4, 5]].copy()
@@ -1989,7 +2002,6 @@ def generate_justrue_file(input_df, output_file):
     except Exception as e:
         print(f"Error creating jusTrue file: {str(e)}")
 
-# Updated custom_headers to include the new detail fields.
 # 'Año' will be added dynamically, so it's not in this list.
 custom_headers = [
     "ID", "Cedula", "Nombre", "1er Nombre", "1er Apellido",
@@ -4846,6 +4858,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <option value="">Selecciona Respuesta</option>
                     <option value="yes" {% if request.GET.answer == 'yes' %}selected{% endif %}>Si</option>
                     <option value="no" {% if request.GET.answer == 'no' %}selected{% endif %}>No</option>
+                    <option value="blank" {% if request.GET.answer == 'blank' %}selected{% endif %}>En Blanco</option> {# Added this line #}
                 </select>
             </div>
 
@@ -4953,17 +4966,17 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ conflict.person.nombre_completo }}</td>
                             <td>{{ conflict.person.compania }}</td>
                             <td>{% if conflict.fecha_inicio %}{{ conflict.fecha_inicio.year }}{% else %}N/A{% endif %}</td> {# Displaying the year #}
-                            <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% else %}<i style="color: red;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% else %}<i style="color: RED;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
-                            <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% else %}<i style="color: green;">NO</i>{% endif %}</td>
+                            <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% elif conflict.q1 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% elif conflict.q2 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% elif conflict.q3 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% elif conflict.q4 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% elif conflict.q5 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% elif conflict.q6 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% elif conflict.q7 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% elif conflict.q8 is False %}<i style="color: red;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% elif conflict.q9 is False %}<i style="color: RED;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% elif conflict.q10 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% elif conflict.q11 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
                             <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' conflict.person.cedula %}"
@@ -4977,7 +4990,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <tr>
                             <td colspan="16" class="text-center py-4"> {# Adjusted colspan to 16 #}
                                 {% if missing_details_view %} {# Conditional message for the new view #}
-                                    No hay conflictos con detalles faltantes para respuestas "SÃ­".
+                                    No hay conflictos con detalles faltantes para respuestas "SÃƒÂ­".
                                 {% elif request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
