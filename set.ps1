@@ -1283,68 +1283,80 @@ def export_persons_excel(request):
     response['Content-Disposition'] = f'attachment; filename="persons_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     return response
 
+@login_required
 def conflict_list(request):
-    """View for displaying a list of conflicts with search and filter options."""
-    conflicts = Conflict.objects.select_related('person').all()
-    q = request.GET.get('q')
-    compania = request.GET.get('compania')
-    column = request.GET.get('column')
-    answer = request.GET.get('answer')
-    order_by = request.GET.get('order_by', 'created_at')
-    sort_direction = request.GET.get('sort_direction', 'desc')
+    search_query = request.GET.get('q', '')
+    compania_filter = request.GET.get('compania', '')
+    column_filter = request.GET.get('column', '')
+    answer_filter = request.GET.get('answer', '')
+    missing_details_view = request.GET.get('missing_details', False) # New parameter for missing details
 
-    if q:
+    order_by = request.GET.get('order_by', 'person__nombre_completo')
+    sort_direction = request.GET.get('sort_direction', 'asc')
+
+    conflicts = Conflict.objects.select_related('person').all()
+
+    if search_query:
         conflicts = conflicts.filter(
-            Q(person__nombre_completo__icontains=q) |
-            Q(person__cedula__icontains=q)
+            Q(person__nombre_completo__icontains=search_query) |
+            Q(person__cedula__icontains=search_query)
         )
 
-    if compania:
-        conflicts = conflicts.filter(person__compania=compania)
+    if compania_filter:
+        conflicts = conflicts.filter(person__compania=compania_filter)
 
-    if column and answer:
-        filter_kwargs = {}
-        if answer == 'yes':
-            filter_kwargs[f'{column}'] = True
-            conflicts = conflicts.filter(**filter_kwargs)
-        elif answer == 'no':
-            filter_kwargs[f'{column}'] = False
-            conflicts = conflicts.filter(**filter_kwargs)
-        elif answer == 'blank': # New condition for 'En Blanco'
-            filter_kwargs[f'{column}__isnull'] = True
-            conflicts = conflicts.filter(**filter_kwargs)
+    if column_filter and answer_filter:
+        filter_q = Q()
+        if answer_filter == 'yes':
+            filter_q = Q(**{column_filter: True})
+        elif answer_filter == 'no':
+            filter_q = Q(**{column_filter: False})
+        elif answer_filter == 'blank': # Filter for blank answers
+            filter_q = Q(**{column_filter: None})
+        conflicts = conflicts.filter(filter_q)
+
+    # Filtering for conflicts where qX is True but qX_detalle is blank (None or empty string)
+    if missing_details_view == 'true': # Check if the parameter is explicitly 'true'
+        missing_details_q = Q()
+        for i in range(1, 12):
+            q_field = f'q{i}'
+            detail_field = f'q{i}_detalle'
+            # Only apply this if the q_field is True AND the detail_field is either None or an empty string
+            missing_details_q |= Q(**{q_field: True, detail_field + '__isnull': True}) | Q(**{q_field: True, detail_field: ''})
+        conflicts = conflicts.filter(missing_details_q)
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
     conflicts = conflicts.order_by(order_by)
 
-    # Get unique companies for the filter dropdown
-    companias = Person.objects.values_list('compania', flat=True).distinct().order_by('compania')
+    # Attach the '_detalle' fields as '_answer' for template display
+    for conflict in conflicts:
+        for i in range(1, 12):
+            detail_field_name = f'q{i}_detalle'
+            answer_field_name = f'q{i}_answer'
+            # Use getattr to safely access the attribute, with a default of None if it doesn't exist
+            setattr(conflict, answer_field_name, getattr(conflict, detail_field_name, None))
 
-    # Pagination
-    paginator = Paginator(conflicts, 10) # Show 10 conflicts per page
+
+    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+
+    paginator = Paginator(conflicts, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # Preserve all current GET parameters for pagination and sorting links
-    all_params = request.GET.copy()
-    if 'page' in all_params:
-        del all_params['page']
-    if 'order_by' in all_params:
-        del all_params['order_by']
-    if 'sort_direction' in all_params:
-        del all_params['sort_direction']
-
+    # Build all_params for pagination links
+    all_params = {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']}
 
     context = {
         'conflicts': page_obj,
         'page_obj': page_obj,
         'companias': companias,
         'current_order': order_by.lstrip('-'),
-        'current_direction': sort_direction,
+        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
+        'all_params': all_params,
         'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
+        'missing_details_view': missing_details_view, # Pass the boolean to the template
     }
-
     return render(request, 'conflicts.html', context)
 
 @login_required
@@ -4766,7 +4778,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 "@ | Out-File -FilePath "core/templates/persons.html" -Encoding utf8
 
 # conflicts template
-@" 
+@'
 {% extends "master.html" %}
 
 {% block title %}Conflictos{% endblock %}
@@ -4897,60 +4909,82 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             </a>
                         </th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q1" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q1&sort_direction={% if current_order == 'q1' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Accionista de proveedor
                             </a>
                         </th>
+                        <th class="answer-q1 hidden-answer">Detalle Q1</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q2" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q2&sort_direction={% if current_order == 'q2' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Familiar de accionista/empleado
                             </a>
                         </th>
+                        <th class="answer-q2 hidden-answer">Detalle Q2</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q3" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q3&sort_direction={% if current_order == 'q3' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Accionista del grupo
                             </a>
                         </th>
+                        <th class="answer-q3 hidden-answer">Detalle Q3</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q4" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q4&sort_direction={% if current_order == 'q4' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Actividades extralaborales
                             </a>
                         </th>
+                        <th class="answer-q4 hidden-answer">Detalle Q4</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q5" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q5&sort_direction={% if current_order == 'q5' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Negocios con empleados
                             </a>
                         </th>
+                        <th class="answer-q5 hidden-answer">Detalle Q5</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q6" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q6&sort_direction={% if current_order == 'q6' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Participacion en juntas
                             </a>
                         </th>
+                        <th class="answer-q6 hidden-answer">Detalle Q6</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q7" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q7&sort_direction={% if current_order == 'q7' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Otro conflicto
                             </a>
                         </th>
+                        <th class="answer-q7 hidden-answer">Detalle Q7</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q8" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q8&sort_direction={% if current_order == 'q8' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Conoce codigo de conducta
                             </a>
                         </th>
+                        <th class="answer-q8 hidden-answer">Detalle Q8</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q9" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q9&sort_direction={% if current_order == 'q9' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Veracidad de informacion
                             </a>
                         </th>
+                        <th class="answer-q9 hidden-answer">Detalle Q9</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q10" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q10&sort_direction={% if current_order == 'q10' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Familiar de funcionario
                             </a>
                         </th>
+                        <th class="answer-q10 hidden-answer">Detalle Q10</th>
                         <th>
+                            <i class="fas fa-eye answer-toggle-icon" data-column="answer-q11" style="cursor: pointer;"></i>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=q11&sort_direction={% if current_order == 'q11' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Relacion con sector publico
                             </a>
                         </th>
+                        <th class="answer-q11 hidden-answer">Detalle Q11</th>
                         <th style="color: rgb(0, 0, 0);">Comentarios</th>
                         <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
                     </tr>
@@ -4967,16 +5001,27 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ conflict.person.compania }}</td>
                             <td>{% if conflict.fecha_inicio %}{{ conflict.fecha_inicio.year }}{% else %}N/A{% endif %}</td> {# Displaying the year #}
                             <td class="text-center">{% if conflict.q1 %}<i style="color: red;">SI</i>{% elif conflict.q1 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q1 hidden-answer">{{ conflict.q1_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q2 %}<i style="color: red;">SI</i>{% elif conflict.q2 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q2 hidden-answer">{{ conflict.q2_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q3 %}<i style="color: red;">SI</i>{% elif conflict.q3 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q3 hidden-answer">{{ conflict.q3_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q4 %}<i style="color: red;">SI</i>{% elif conflict.q4 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q4 hidden-answer">{{ conflict.q4_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q5 %}<i style="color: red;">SI</i>{% elif conflict.q5 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q5 hidden-answer">{{ conflict.q5_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q6 %}<i style="color: red;">SI</i>{% elif conflict.q6 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q6 hidden-answer">{{ conflict.q6_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q7 %}<i style="color: red;">SI</i>{% elif conflict.q7 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q7 hidden-answer">{{ conflict.q7_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q8 %}<i style="color: green;">SI</i>{% elif conflict.q8 is False %}<i style="color: red;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q8 hidden-answer">{{ conflict.q8_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q9 %}<i style="color: green;">SI</i>{% elif conflict.q9 is False %}<i style="color: RED;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q9 hidden-answer">{{ conflict.q9_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q10 %}<i style="color: red;">SI</i>{% elif conflict.q10 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q10 hidden-answer">{{ conflict.q10_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td class="text-center">{% if conflict.q11 %}<i style="color: red;">SI</i>{% elif conflict.q11 is False %}<i style="color: green;">NO</i>{% else %}N/A{% endif %}</td>
+                            <td class="answer-q11 hidden-answer">{{ conflict.q11_answer|default:"N/A" }}</td> {# Hidden answer column #}
                             <td>{{ conflict.person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' conflict.person.cedula %}"
@@ -4988,9 +5033,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="16" class="text-center py-4"> {# Adjusted colspan to 16 #}
+                            <td colspan="36" class="text-center py-4"> {# Adjusted colspan to match the new number of columns #}
                                 {% if missing_details_view %} {# Conditional message for the new view #}
-                                    No hay conflictos con detalles faltantes para respuestas "SÃƒÂ­".
+                                    No hay conflictos con detalles faltantes para respuestas "SÃƒÆ’Ã‚Â­".
                                 {% elif request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
@@ -5046,8 +5091,49 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
     </div>
 </div>
+
+<style>
+    .hidden-answer {
+        display: none;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Removed the main toggle button and its listener
+        // const toggleButton = document.getElementById('toggleAnswers');
+
+        const answerToggleIcons = document.querySelectorAll('.answer-toggle-icon');
+
+        // Initial state: hide all answer columns and show the info icons
+        document.querySelectorAll('.hidden-answer').forEach(cell => {
+            cell.style.display = 'none';
+        });
+        answerToggleIcons.forEach(icon => {
+            icon.style.display = 'inline-block'; // Ensure icons are visible
+        });
+
+
+        // Event listener for each individual info icon
+        answerToggleIcons.forEach(icon => {
+            icon.addEventListener('click', function(event) {
+                event.stopPropagation(); // Prevent column sort if clicked on icon
+                const columnClass = this.dataset.column; // e.g., "answer-q1"
+
+                // Toggle visibility of all cells (<th> and <td>) with this class
+                document.querySelectorAll(`.${columnClass}`).forEach(cell => {
+                    if (cell.style.display === 'none' || cell.style.display === '') {
+                        cell.style.display = 'table-cell';
+                    } else {
+                        cell.style.display = 'none';
+                    }
+                });
+            });
+        });
+    });
+</script>
 {% endblock %}
-"@ | Out-File -FilePath "core/templates/conflicts.html" -Encoding utf8
+'@ | Out-File -FilePath "core/templates/conflicts.html" -Encoding utf8
 
 @"
 {% extends "master.html" %}
