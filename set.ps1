@@ -4692,9 +4692,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% for person in persons %}
                         <tr {% if person.revisar %}class="table-warning"{% endif %}>
                             <td>
-                                <a href="/admin/core/person/{{ person.cedula }}/change/" style="text-decoration: none;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
-                                    <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
-                                </a>
+                                <form action="{% url 'toggle_revisar_status' person.cedula %}" method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                        <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                    </button>
+                                </form>
                             </td>
                             <td>{{ person.cedula }}</td>
                             <td>{{ person.nombre_completo }}</td>
@@ -4837,15 +4840,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        placeholder="Buscar Persona..."
                        {% if request.GET.q %}autofocus{% endif %}
                        value="{{ request.GET.q }}">
-            </div>
-
-            <div class="col-md-2">
-                <select name="compania" class="form-select form-select-lg">
-                    <option value="">Compania</option>
-                    {% for compania in companias %}
-                        <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
-                    {% endfor %}
-                </select>
             </div>
 
             <div class="col-md-2">
@@ -4993,9 +4987,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% for conflict in conflicts %}
                         <tr {% if conflict.person.revisar %}class="table-warning"{% endif %}>
                             <td>
-                                <a href="/admin/core/person/{{ conflict.person.cedula }}/change/" style="text-decoration: none;" title="{% if conflict.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
-                                    <i class="fas fa-{% if conflict.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
-                                </a>
+                                <form action="{% url 'toggle_revisar_status' conflict.person.cedula %}" method="post" style="display: inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer;" title="{% if conflict.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                        <i class="fas fa-{% if conflict.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                    </button>
+                                </form>
                             </td>
                             <td>{{ conflict.person.nombre_completo }}</td>
                             <td>{{ conflict.person.compania }}</td>
