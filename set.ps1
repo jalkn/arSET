@@ -4819,6 +4819,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-database"></i>
     </a>
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+        <i class="fas fa-file-excel" style="color: green;"></i>
+    </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
         <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
@@ -4876,6 +4879,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
 
             <div class="col-md-2 d-flex gap-2">
+                <button type="button" class="btn btn-custom-primary flex-grow-1" id="filter-revisar-btn-conflicts" title="Filtrar por 'Revisar'"><i class="fas fa-check-square"></i></button>
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
@@ -5039,7 +5043,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <tr>
                             <td colspan="36" class="text-center py-4"> {# Adjusted colspan to match the new number of columns #}
                                 {% if missing_details_view %} {# Conditional message for the new view #}
-                                    No hay conflictos con detalles faltantes para respuestas "SÃƒÆ’Ã‚Â­".
+                                    No hay conflictos con detalles faltantes para respuestas "SÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­".
                                 {% elif request.GET.q or request.GET.compania or request.GET.column or request.GET.answer %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
@@ -5096,17 +5100,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
 </div>
 
-<style>
-    .hidden-answer {
-        display: none;
-    }
-</style>
-
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Removed the main toggle button and its listener
-        // const toggleButton = document.getElementById('toggleAnswers');
-
+        // --- Existing JavaScript for Answer Toggling ---
         const answerToggleIcons = document.querySelectorAll('.answer-toggle-icon');
 
         // Initial state: hide all answer columns and show the info icons
@@ -5116,7 +5112,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         answerToggleIcons.forEach(icon => {
             icon.style.display = 'inline-block'; // Ensure icons are visible
         });
-
 
         // Event listener for each individual info icon
         answerToggleIcons.forEach(icon => {
@@ -5134,6 +5129,72 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 });
             });
         });
+
+        // --- NEW JavaScript for "Revisar" Filtering (Merged) ---
+        const urlParams = new URLSearchParams(window.location.search);
+
+        // Event Listener for "Revisar" Filter Button for Conflicts
+        const filterRevisarButtonConflicts = document.getElementById('filter-revisar-btn-conflicts');
+        if (filterRevisarButtonConflicts) {
+            filterRevisarButtonConflicts.addEventListener('click', function() {
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.delete('q'); // Clear any general search query
+                currentUrl.searchParams.delete('page'); // Reset pagination
+
+                // Toggle the "revisar" filter parameter
+                if (currentUrl.searchParams.get('revisar') === 'True') {
+                    currentUrl.searchParams.delete('revisar');
+                } else {
+                    currentUrl.searchParams.set('revisar', 'True');
+                }
+
+                window.location.href = currentUrl.toString();
+            });
+        }
+
+        // Client-side Filtering Logic (hide non-marked rows) for Conflicts Table
+        if (urlParams.get('revisar') === 'True') {
+            const tableRows = document.querySelectorAll('tbody tr'); // Assuming your conflicts table rows are within <tbody>
+            tableRows.forEach(row => {
+                // Check if the row has the 'table-warning' class which indicates 'revisar' status
+                if (!row.classList.contains('table-warning')) {
+                    row.style.display = 'none'; // Hide rows that are not marked for review
+                }
+            });
+
+            // Optionally, update the records count badge (adjust selector if different for conflicts)
+            const recordCountBadge = document.querySelector('.badge.bg-success');
+            if (recordCountBadge) {
+                let visibleRows = 0;
+                document.querySelectorAll('tbody tr').forEach(row => {
+                    if (row.style.display !== 'none') {
+                        visibleRows++;
+                    }
+                });
+                recordCountBadge.textContent = visibleRows + ' registros';
+            }
+
+            // Optionally, hide pagination if filtering client-side
+            const paginationDiv = document.querySelector('.p-3'); // Adjust selector if different
+            if (paginationDiv) {
+                paginationDiv.style.display = 'none';
+            }
+        }
+
+        // Update Excel Export Button Link for Conflicts
+        const exportExcelButtonConflicts = document.getElementById('export-conflicts-excel-button'); // Assumed ID for the conflicts export button
+        if (exportExcelButtonConflicts) {
+            const originalHref = exportExcelButtonConflicts.href; // Store the original href
+
+            const exportUrl = new URL(originalHref);
+
+            if (urlParams.get('revisar') === 'True') {
+                exportUrl.searchParams.set('revisar', 'True');
+            } else {
+                exportUrl.searchParams.delete('revisar');
+            }
+            exportExcelButtonConflicts.href = exportUrl.toString(); // Update the export button's href
+        }
     });
 </script>
 {% endblock %}
