@@ -30,6 +30,7 @@ function arpa {
         "core/static/css",
         "core/static/js",
         "core/templates",
+        "core/templatetags",
         "core/templates/admin",
         "core/templates/registration"
     )
@@ -50,7 +51,7 @@ class Person(models.Model):
     compania = models.CharField(max_length=255, blank=True)
     cargo = models.CharField(max_length=255, blank=True)
     revisar = models.BooleanField(default=False)
-    comments = models.TextField(blank=True)
+    comments = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -504,7 +505,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons, import_tcs,
                    import_finances, person_details, financial_report_list,
-                   tcs_list, export_persons_excel, alerts_list) # Import the new view alerts_list
+                   tcs_list, export_persons_excel, alerts_list, save_comment, delete_comment)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -553,6 +554,8 @@ urlpatterns = [
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
     path('alerts/', views.alerts_list, name='alerts_list'),
     path('toggle-revisar/<str:cedula>/', views.toggle_revisar_status, name='toggle_revisar_status'),
+    path('person/<str:cedula>/save_comment/', views.save_comment, name='save_comment'),
+    path('person/<str:cedula>/delete_comment/<int:comment_index>/', views.delete_comment, name='delete_comment'),
 ]
 "@
 
@@ -1845,6 +1848,49 @@ def alerts_list(request):
     }
 
     return render(request, 'alerts.html', context)
+
+@require_POST
+def save_comment(request, cedula):
+    person = get_object_or_404(Person, cedula=cedula)
+    new_comment = request.POST.get('new_comment')
+
+    if new_comment:
+        now = datetime.now() 
+        timestamp = now.strftime("%d/%m/%Y %H:%M:%S")
+
+        formatted_comment = f"[{timestamp}] {new_comment}"
+        
+        if person.comments:
+            person.comments += f"\n{formatted_comment}"
+        else:
+            person.comments = formatted_comment
+        
+        person.save()
+
+    return redirect('person_details', cedula=cedula)
+
+@require_POST
+def delete_comment(request, cedula, comment_index):
+    person = get_object_or_404(Person, cedula=cedula)
+
+    if person.comments:
+        comments_list = person.comments.splitlines()
+        
+        # Filter out empty strings that might result from splitlines
+        comments_list = [comment.strip() for comment in comments_list if comment.strip()]
+
+        if 0 <= comment_index < len(comments_list):
+            # Remove the comment at the specified index
+            comments_list.pop(comment_index)
+            
+            # Join the remaining comments back into a single string
+            person.comments = "\n".join(comments_list)
+            person.save()
+        else:
+            # Handle invalid index, e.g., log an error or show a message
+            pass # For now, silently ignore invalid index
+    
+    return redirect('person_details', cedula=cedula)
 "@
 
 # Create core/conflicts.py
@@ -3481,6 +3527,25 @@ urlpatterns = [
 ]
 "@
 
+# Update template filters
+Set-Content -Path "core/templatetags/my_filters.py" -Value @"
+from django import template
+
+register = template.Library()
+
+@register.filter
+def split_lines(value):
+    """Splits a string by newlines and returns a list of lines."""
+    if isinstance(value, str):
+        # Only split if it's a string; handle None/empty string gracefully
+        return value.splitlines()
+    return [] # Return an empty list for non-string or None values
+"@
+
+# Update template filters __init__.py
+Set-Content -Path "core/templatetags/__init__.py" -Value @"
+"@
+
 #statics css style
 @" 
 :root {
@@ -4879,7 +4944,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
 
             <div class="col-md-2 d-flex gap-2">
-                <button type="button" class="btn btn-custom-primary flex-grow-1" id="filter-revisar-btn-conflicts" title="Filtrar por 'Revisar'"><i class="fas fa-check-square"></i></button>
+                <button type="button" class="btn btn-custom-primary flex-grow-1" id="filter-revisar-btn-conflicts" title="Filtrar por 'Revisar'" style="color: orange;"><i class="fas fa-check-square"></i></button>
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
@@ -5555,17 +5620,19 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <span class="badge bg-success me-2"> {# Added me-2 for margin #}
                     {{ page_obj.paginator.count }} registros
                 </span>
-                {% comment %} Removed the if block here as it was empty {% endcomment %}
             </div>
 
             <div id="filter-rows-container" class="col-md-9 row g-3">
-                <div class="col-md-3 d-flex"> {# Added d-flex to make input and button align horizontally #}
+                <div class="col-12 d-flex gap-2 justify-content-end mt-3"> 
                     <input type="text"
                         name="q"
                         class="form-control form-control-lg me-2" {# Added me-2 for margin between input and button #}
                         placeholder="Buscar persona..."
                         value="{{ request.GET.q|default:'' }}">
-                    <button type="button" class="btn btn-custom-primary btn-lg" id="filter-revisar-btn" title="Filtrar por 'Revisar'"><i class="fas fa-check-square"></i></button>
+                    <button type="button" class="btn btn-custom-primary btn-lg" id="filter-revisar-btn" title="Filtrar por 'Revisar'" style="color: orange;"><i class="fas fa-check-square"></i></button>
+                    <button type="submit" class="btn btn-custom-primary btn-lg"><i class="fas fa-filter"></i></button>
+                    <a href="." class="btn btn-custom-primary btn-lg"><i class="fas fa-undo"></i></a>
+                </div>
                 </div>
 
                 <div class="filter-group-template" style="display: none;">
@@ -5632,17 +5699,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 class="form-control form-control-lg value2-input"
                                 placeholder="Segundo Valor">
                         </div>
-                        <div class="col-md-1 d-flex justify-content-center"> {# Added d-flex justify-content-center for button alignment #}
+                        <div class="col-md-1 d-flex gap-2 justify-content-end mt-3"> 
                             <button type="button" class="btn btn-danger remove-filter-btn"><i class="fas fa-minus"></i></button>
+                            <button type="button" class="btn btn-custom-primary btn-lg" id="add-filter-btn"><i class="fas fa-plus"></i></button>
                         </div>
                     </div>
                 </div>
             </div> 
-                <div class="col-12 d-flex gap-2 justify-content-end mt-3"> {# Added mt-3 for top margin #}
-                    <button type="button" class="btn btn-custom-primary btn-lg" id="add-filter-btn"><i class="fas fa-plus"></i></button>
-                    <button type="submit" class="btn btn-custom-primary btn-lg"><i class="fas fa-filter"></i></button>
-                    <a href="." class="btn btn-custom-primary btn-lg"><i class="fas fa-undo"></i></a>
-                </div>
     </div>
 </div>
 
@@ -6490,6 +6553,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% extends "master.html" %}
 {% load static %}
 {% load humanize %}
+{% load my_filters %}
 
 {% block title %}Detalles - {{ myperson.nombre_completo }}{% endblock %}
 {% block navbar_title %}{{ myperson.nombre_completo }}{% endblock %}
@@ -6574,16 +6638,52 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <tr>
                         <th>Por revisar:</th>
                         <td>
-                            {% if myperson.revisar %}
-                                <span class="badge bg-warning text-dark">Si</span>
-                            {% else %}
-                                <span class="badge bg-secondary">No</span>
-                            {% endif %}
+                            <form action="{% url 'toggle_revisar_status' myperson.cedula %}" method="post" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="submit"
+                                        class="btn btn-link p-0 border-0 bg-transparent"
+                                        title="{% if myperson.revisar %}Desmarcar para Revisar{% else %}Marcar para Revisar{% endif %}">
+                                    <i class="fas fa-{% if myperson.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"
+                                    style="padding-left: 20px; font-size: 1.25rem;"></i>
+                                </button>
+                            </form>
                         </td>
                     </tr>
                     <tr>
                         <th>Comentarios:</th>
-                        <td>{{ myperson.comments|linebreaks }}</td>
+                        <td>
+                            <div class="mb-3">
+                                <strong>Historial:</strong><br>
+                                <div id="comment-list" class="border p-2" style="max-height: 200px; overflow-y: auto;">
+                                    {% if myperson.comments %}
+                                        {% for comment_line in myperson.comments|split_lines %}
+                                            {% if comment_line %}
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <span>{{ comment_line }}</span>
+                                                    <form action="{% url 'delete_comment' myperson.cedula forloop.counter0 %}" method="post" style="display:inline;">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn btn-danger btn-sm" title="Eliminar Comentario">
+                                                            <i class="fas fa-trash-alt"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        <p class="text-muted">No hay comentarios existentes.</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <form action="{% url 'save_comment' myperson.cedula %}" method="post">
+                                {% csrf_token %}
+                                <div class="form-group mt-3">
+                                    <label for="new_comment">Agregar nuevo comentario:</label>
+                                    <textarea class="form-control" id="new_comment" name="new_comment" rows="3" placeholder="Escribe tu comentario aquí..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm mt-2">Agregar Comentario</button>
+                            </form>
+                        </td>
                     </tr>
                 </table>
             </div>
@@ -6914,7 +7014,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 </div>
-<script src="{% static 'js/details.js' %}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const conflictSelect = document.getElementById('conflict-select');
