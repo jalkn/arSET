@@ -14,7 +14,7 @@ function arpa {
 
     # Install required Python packages
     python.exe -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber fitz msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
