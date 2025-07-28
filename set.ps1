@@ -1216,7 +1216,7 @@ def export_persons_excel(request):
                     # For numeric fields, 'contains' usually doesn't make sense.
                     persons = persons.filter(**{f'{filter_key}__icontains': str(value1)})
         i += 1
-    # --- End dynamic column filtering ---
+
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
@@ -1225,8 +1225,6 @@ def export_persons_excel(request):
     # Prepare data for DataFrame
     data = []
     for person in persons:
-        # Get the latest financial report for the person, or handle if there are multiple
-        # For simplicity, let's assume one relevant financial report or get the first one if multiple exist
         # You might need to adjust this logic based on how you want to handle multiple reports per person
         financial_report = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo').first()
 
@@ -1640,9 +1638,6 @@ def import_tcs(request):
 
                 for _, row in df.iterrows():
                     try:
-                        # Attempt to extract cedula from 'tarjetahabiente' or other means if available
-                        # For now, we'll try to find a person by name, which might not be unique.
-                        # A better approach would be to have cedula in the PDF output or a mapping.
                         # For this example, we'll use the 'tarjetahabiente' as a loose identifier.
                         tarjetahabiente_name = row.get('tarjetahabiente', '').strip()
                         # Assuming the tarjetahabiente name in the TCS report might match a person's full name
@@ -5324,14 +5319,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        placeholder="Buscar persona, cedula o descripcion..." 
                        value="{{ request.GET.q }}">
             </div>
-            
-            <div class="col-md-3">
-                <input type="text"
-                       name="descripcion"
-                       class="form-control form-control-lg"
-                       placeholder="Buscar por descripcion..."
-                       value="{{ request.GET.descripcion }}">
-            </div>
 
             <div class="col-md-3">
                 <input type="text" 
@@ -5345,57 +5332,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
-
-            <div class="col-12 d-flex flex-wrap gap-2 mt-2">
-                <button type="submit" name="category_filter" value="restaurantes"
-                        class="btn btn-outline-secondary {% if selected_category == 'restaurantes' %}active{% endif %}">
-                    Restaurantes
-                </button>
-                <button type="submit" name="category_filter" value="suscripciones"
-                        class="btn btn-outline-secondary {% if selected_category == 'suscripciones' %}active{% endif %}">
-                    Suscripciones
-                </button>
-                <button type="submit" name="category_filter" value="gastos_diversos"
-                        class="btn btn-outline-secondary {% if selected_category == 'gastos_diversos' %}active{% endif %}">
-                    Gastos diversos
-                </button>
-                <button type="submit" name="category_filter" value="compras"
-                        class="btn btn-outline-secondary {% if selected_category == 'compras' %}active{% endif %}">
-                    Compras
-                </button>
-                <button type="submit" name="category_filter" value="gastos_vehiculos"
-                        class="btn btn-outline-secondary {% if selected_category == 'gastos_vehiculos' %}active{% endif %}">
-                    Gastos Vehiculos
-                </button>
-                <button type="submit" name="category_filter" value="gastos_medicos"
-                        class="btn btn-outline-secondary {% if selected_category == 'gastos_medicos' %}active{% endif %}">
-                    Gastos Medicos
-                </button>
-                <button type="submit" name="category_filter" value="tecnologia"
-                        class="btn btn-outline-secondary {% if selected_category == 'tecnologia' %}active{% endif %}">
-                    Tecnologia
-                </button>
-                <button type="submit" name="category_filter" value="pagos_online"
-                        class="btn btn-outline-secondary {% if selected_category == 'pagos_online' %}active{% endif %}">
-                    Pagos online
-                </button>
-                <button type="submit" name="category_filter" value="telefono_internet"
-                        class="btn btn-outline-secondary {% if selected_category == 'telefono_internet' %}active{% endif %}">
-                    Servicio telefono e internet
-                </button>
-                <button type="submit" name="category_filter" value="gastos_viaje"
-                        class="btn btn-outline-secondary {% if selected_category == 'gastos_viaje' %}active{% endif %}">
-                    Gastos Viaje
-                </button>
-                <button type="submit" name="category_filter" value="avances"
-                        class="btn btn-outline-secondary {% if selected_category == 'avances' %}active{% endif %}">
-                    Avances
-                </button>
-                <button type="submit" name="category_filter" value="gastos_legales"
-                        class="btn btn-outline-secondary {% if selected_category == 'gastos_legales' %}active{% endif %}">
-                    Gastos Legales
-                </button>
+            
+            <div class="col-md-3">
+                <div class="dropdown">
+                    <button class="form-control form-control-lg btn btn-outline-secondary dropdown-toggle" type="button" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left; background-color: rgb(255, 255, 255);" >
+                        {% if selected_category %}
+                            {{ selected_category|capfirst }}
+                        {% else %}
+                            Buscar por categoria...
+                        {% endif %}
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                        <li><h6 class="dropdown-header">Seleccione una categoría</h6></li>
+                        <li>
+                            <button type="submit" name="category_filter" value="" class="dropdown-item {% if not selected_category %}active{% endif %}">Todas</button>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button type="submit" name="category_filter" value="restaurantes" class="dropdown-item {% if selected_category == 'restaurantes' %}active{% endif %}">Restaurantes</button></li>
+                        <li><button type="submit" name="category_filter" value="suscripciones" class="dropdown-item {% if selected_category == 'suscripciones' %}active{% endif %}">Suscripciones</button></li>
+                        <li><button type="submit" name="category_filter" value="gastos_diversos" class="dropdown-item {% if selected_category == 'gastos_diversos' %}active{% endif %}">Gastos diversos</button></li>
+                        <li><button type="submit" name="category_filter" value="compras" class="dropdown-item {% if selected_category == 'compras' %}active{% endif %}">Compras</button></li>
+                        <li><button type="submit" name="category_filter" value="gastos_vehiculos" class="dropdown-item {% if selected_category == 'gastos_vehiculos' %}active{% endif %}">Gastos Vehiculos</button></li>
+                        <li><button type="submit" name="category_filter" value="gastos_medicos" class="dropdown-item {% if selected_category == 'gastos_medicos' %}active{% endif %}">Gastos Medicos</button></li>
+                        <li><button type="submit" name="category_filter" value="tecnologia" class="dropdown-item {% if selected_category == 'tecnologia' %}active{% endif %}">Tecnologia</button></li>
+                        <li><button type="submit" name="category_filter" value="pagos_online" class="dropdown-item {% if selected_category == 'pagos_online' %}active{% endif %}">Pagos online</button></li>
+                        <li><button type="submit" name="category_filter" value="telefono_internet" class="dropdown-item {% if selected_category == 'telefono_internet' %}active{% endif %}">Servicio telefono e internet</button></li>
+                        <li><button type="submit" name="category_filter" value="gastos_viaje" class="dropdown-item {% if selected_category == 'gastos_viaje' %}active{% endif %}">Gastos Viaje</button></li>
+                        <li><button type="submit" name="category_filter" value="avances" class="dropdown-item {% if selected_category == 'avances' %}active{% endif %}">Avances</button></li>
+                        <li><button type="submit" name="category_filter" value="gastos_legales" class="dropdown-item {% if selected_category == 'gastos_legales' %}active{% endif %}">Gastos Legales</button></li>
+                    </ul>
+                </div>
             </div>
+
         </form>
     </div>
 </div>
@@ -6679,9 +6647,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 {% csrf_token %}
                                 <div class="form-group mt-3">
                                     <label for="new_comment">Agregar nuevo comentario:</label>
-                                    <textarea class="form-control" id="new_comment" name="new_comment" rows="3" placeholder="Escribe tu comentario aquí..."></textarea>
+                                    <textarea class="form-control" id="new_comment" name="new_comment" rows="3" placeholder="Escribe tu comentario..."></textarea>
                                 </div>
-                                <button type="submit" class="btn btn-primary btn-sm mt-2">Agregar Comentario</button>
+                                <button type="submit" class="btn btn-primary btn-sm mt-2">Comentar</button>
                             </form>
                         </td>
                     </tr>
