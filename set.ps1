@@ -4511,7 +4511,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
                         <div class="mb-3">
                             <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password">
-                            <div class="form-text">Ingrese la clave si los PDFs estÃ¡n protegidos</div>
+                            <div class="form-text">Ingrese la clave</div>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar TCs</button>
