@@ -147,39 +147,6 @@ class FinancialReport(models.Model):
 
     def __str__(self):
         return f"Reporte Financiero para {self.person.nombre_completo} (Periodo: {self.fk_id_periodo})"
-
-class TCS(models.Model):
-    id = models.AutoField(primary_key=True)
-    person = models.ForeignKey(
-        Person,
-        on_delete=models.CASCADE,
-        related_name='tcs_transactions',
-        to_field='cedula',
-        db_column='cedula'
-    )
-    archivo = models.CharField(max_length=255, null=True, blank=True)
-    tarjetahabiente = models.CharField(max_length=255, null=True, blank=True)
-    numero_tarjeta = models.CharField(max_length=20, null=True, blank=True)
-    numero_autorizacion = models.CharField(max_length=50, null=True, blank=True)
-    fecha_transaccion = models.DateField(null=True, blank=True)
-    descripcion = models.TextField(null=True, blank=True)
-    valor_original = models.FloatField(null=True, blank=True)
-    tasa_pactada = models.CharField(max_length=50, null=True, blank=True)
-    tasa_ea_facturada = models.CharField(max_length=50, null=True, blank=True)
-    cargos_abonos = models.FloatField(null=True, blank=True)
-    saldo_a_diferir = models.FloatField(null=True, blank=True)
-    cuotas = models.CharField(max_length=20, null=True, blank=True)
-    pagina = models.IntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "Transaccion de Tarjeta de Credito"
-        verbose_name_plural = "Transacciones de Tarjetas de Credito"
-        unique_together = ('person', 'numero_tarjeta', 'fecha_transaccion', 'descripcion', 'valor_original')
-
-    def __str__(self):
-        return f"TC Transaction for {self.tarjetahabiente} ({self.numero_tarjeta[-4:]}) on {self.fecha_transaccion}"
 "@
 
 # Create admin.py with enhanced configuration
@@ -188,7 +155,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.urls import reverse
-from core.models import Person, Conflict, FinancialReport, TCS # Import TCS
+from core.models import Person, Conflict, FinancialReport
 
 class ConflictForm(forms.ModelForm):
     class Meta:
@@ -215,14 +182,14 @@ class PersonAdmin(admin.ModelAdmin):
     list_editable = ('revisar',)
 
     # Custom fields to show in detail view
-    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link', 'tcs_transactions_link')
+    readonly_fields = ('cedula_with_actions', 'conflicts_link', 'financial_reports_link')
 
     fieldsets = (
         (None, {
             'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
         }),
         ('Related Records', {
-            'fields': ('conflicts_link', 'financial_reports_link', 'tcs_transactions_link'), # Add tcs_transactions_link
+            'fields': ('conflicts_link', 'financial_reports_link'),
             'classes': ('collapse',)
         }),
     )
@@ -302,35 +269,6 @@ class PersonAdmin(admin.ModelAdmin):
         return "-"
     financial_reports_link.short_description = 'Financial Reports'
     financial_reports_link.allow_tags = True
-
-    def tcs_transactions_link(self, obj):
-        if obj.pk:
-            tcs_transaction = obj.tcs_transactions.first()
-            if tcs_transaction:
-                change_url = reverse('admin:core_tcs_change', args=[tcs_transaction.pk])
-                add_url = reverse('admin:core_tcs_add') + f'?person={obj.pk}'
-                list_url = reverse('admin:core_tcs_changelist') + f'?q={obj.cedula}'
-
-                return format_html(
-                    '<div class="nowrap">'
-                    '<a href="{}" class="changelink">View/Edit TCS Transactions</a> &nbsp;'
-                    '<a href="{}" class="addlink">Add New TCS Transaction</a> &nbsp;'
-                    '<a href="{}" class="viewlink">All TCS Transactions</a>'
-                    '</div>',
-                    change_url,
-                    add_url,
-                    list_url
-                )
-            else:
-                add_url = reverse('admin:core_tcs_add') + f'?person={obj.pk}'
-                return format_html(
-                    '<a href="{}" class="addlink">Create TCS Transaction Record</a>',
-                    add_url
-                )
-        return "-"
-    tcs_transactions_link.short_description = 'TCS Transactions'
-    tcs_transactions_link.allow_tags = True
-
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:  # Add view
@@ -469,27 +407,6 @@ class FinancialReportAdmin(admin.ModelAdmin):
             )
         }),
     )
-
-@admin.register(TCS)
-class TCSAdmin(admin.ModelAdmin):
-    list_display = (
-        'person', 'archivo', 'tarjetahabiente', 'numero_tarjeta',
-        'fecha_transaccion', 'descripcion', 'valor_original', 'cargos_abonos'
-    )
-    search_fields = (
-        'person__nombre_completo', 'person__cedula', 'tarjetahabiente',
-        'numero_tarjeta', 'descripcion'
-    )
-    list_filter = ('fecha_transaccion', 'tarjetahabiente')
-    raw_id_fields = ('person',)
-    fieldsets = (
-        (None, {
-            'fields': ('person', 'archivo', 'tarjetahabiente', 'numero_tarjeta', 'numero_autorizacion', 'fecha_transaccion')
-        }),
-        ('Transaction Details', {
-            'fields': ('descripcion', 'valor_original', 'tasa_pactada', 'tasa_ea_facturada', 'cargos_abonos', 'saldo_a_diferir', 'cuotas', 'pagina')
-        }),
-    )
 "@
 
 # Create urls.py for core app
@@ -503,9 +420,9 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
-                   import_conflicts, conflict_list, import_persons, import_tcs,
+                   import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
-                   tcs_list, export_persons_excel, alerts_list, save_comment, delete_comment)
+                   export_persons_excel, alerts_list, save_comment, delete_comment)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -548,8 +465,6 @@ urlpatterns = [
     path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), 
     path('conflicts/', views.conflict_list, name='conflict_list'),
     path('financial-reports/', views.financial_report_list, name='financial_report_list'),
-    path('tcs-transactions/', views.tcs_list, name='tcs_list'), 
-    path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('import-finances/', views.import_finances, name='import_finances'),
     path('persons/<str:cedula>/', views.person_details, name='person_details'),
     path('alerts/', views.alerts_list, name='alerts_list'),
@@ -574,7 +489,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
 from django.shortcuts import render
-from core.models import Person, Conflict, FinancialReport, TCS 
+from core.models import Person, Conflict, FinancialReport
 from django.db.models import Q
 import subprocess
 import msoffcrypto
@@ -666,8 +581,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
         context['finances_count'] = FinancialReport.objects.count()
-        context['tc_count'] = TCS.objects.count() # Get count from TCS model
-        context['alerts_count'] = Person.objects.filter(revisar=True).count() # Add alerts count
+        context['alerts_count'] = Person.objects.filter(revisar=True).count() 
 
         analysis_results = []
         core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
@@ -754,22 +668,10 @@ def main(request):
     context['person_count'] = Person.objects.count()
     context['conflict_count'] = Conflict.objects.count()
     context['finances_count'] = FinancialReport.objects.count()
-    context['tc_count'] = TCS.objects.count()
     context['active_person_count'] = Person.objects.filter(estado='Activo').count()
     context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count()
     context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
     context['alerts_count'] = Person.objects.filter(revisar=True).count()
-
-    # Calculate "Restaurantes" count for the home page
-    restaurantes_count = TCS.objects.filter(
-        Q(descripcion__icontains='CHEF BURGER MILLA DE O') |
-        Q(descripcion__icontains='CREPES Y WAFFLES OVIED') |
-        Q(descripcion__icontains='CREPES Y WAFFLES B/GDE') |
-        Q(descripcion__icontains='CREPES Y WAFFLES') |
-        Q(descripcion__icontains='FIORDI PIZZA PLAZA DEL') |
-        Q(descripcion__icontains='FIT CHOICES CALLE 99')
-    ).count()
-    context['restaurantes_count'] = restaurantes_count # Add to context
 
     return render(request, 'home.html', context)
 
@@ -1489,228 +1391,6 @@ def financial_report_list(request):
 
     return render(request, 'finances.html', context)
 
-
-@login_required
-def tcs_list(request):
-    """
-    View to display TCS (credit card) transactions.
-    """
-    search_query = request.GET.get('q', '')
-    descripcion_filter = request.GET.get('descripcion', '') # Changed from compania_filter
-    numero_tarjeta_filter = request.GET.get('numero_tarjeta', '')
-    fecha_transaccion_start = request.GET.get('fecha_transaccion_start', '')
-    fecha_transaccion_end = request.GET.get('fecha_transaccion_end', '')
-    category_filter = request.GET.get('category_filter', '') # New category filter
-
-    order_by = request.GET.get('order_by', 'fecha_transaccion')
-    sort_direction = request.GET.get('sort_direction', 'desc') # Default to descending for dates
-
-    tcs_transactions = TCS.objects.select_related('person').all()
-
-    if search_query:
-        tcs_transactions = tcs_transactions.filter(
-            Q(person__nombre_completo__icontains=search_query) |
-            Q(person__cedula__icontains=search_query) |
-            Q(descripcion__icontains=search_query) |
-            Q(tarjetahabiente__icontains=search_query)
-        )
-
-    if descripcion_filter: # Changed filter application
-        tcs_transactions = tcs_transactions.filter(descripcion__icontains=descripcion_filter)
-
-    if numero_tarjeta_filter:
-        # Filter by last 4 digits or full number
-        tcs_transactions = tcs_transactions.filter(numero_tarjeta__icontains=numero_tarjeta_filter)
-
-    if fecha_transaccion_start:
-        try:
-            start_date = datetime.strptime(fecha_transaccion_start, '%Y-%m-%d').date()
-            tcs_transactions = tcs_transactions.filter(fecha_transaccion__gte=start_date)
-        except ValueError:
-            messages.error(request, "Formato de fecha de inicio inválido.")
-
-    if fecha_transaccion_end:
-        try:
-            end_date = datetime.strptime(fecha_transaccion_end, '%Y-%m-%d').date()
-            tcs_transactions = tcs_transactions.filter(fecha_transaccion__lte=end_date)
-        except ValueError:
-            messages.error(request, "Formato de fecha de fin inválido.")
-
-    # Apply category filters
-    if category_filter:
-        if category_filter == 'restaurantes':
-            tcs_transactions = tcs_transactions.filter(
-                Q(descripcion__icontains='CHEF BURGER MILLA DE O') |
-                Q(descripcion__icontains='CREPES Y WAFFLES OVIED') |
-                Q(descripcion__icontains='CREPES Y WAFFLES B/GDE') |
-                Q(descripcion__icontains='CREPES Y WAFFLES') |
-                Q(descripcion__icontains='FIORDI PIZZA PLAZA DEL') |
-                Q(descripcion__icontains='FIT CHOICES CALLE 99')
-            )
-        elif category_filter == 'suscripciones':
-            tcs_transactions = tcs_transactions.filter(
-                Q(descripcion__icontains='CHRIS HOLA')
-                # Add more values later:
-                # | Q(descripcion__icontains='ANOTHER SUBSCRIPTION')
-            )
-        elif category_filter == 'gastos_diversos':
-            tcs_transactions = tcs_transactions.filter(
-                Q(descripcion__icontains='ECONOMY PARK RIDE MIA')
-                # Add more values later:
-                # | Q(descripcion__icontains='OTHER EXPENSE')
-            )
-        elif category_filter == 'compras':
-            tcs_transactions = tcs_transactions.filter(
-                Q(descripcion__icontains='CARULLA LAS PALMAS')
-                # Add more values later:
-                # | Q(descripcion__icontains='ANOTHER PURCHASE')
-            )
-        elif category_filter == 'gastos_vehiculos':
-            tcs_transactions = tcs_transactions.filter(
-                Q(descripcion__icontains='CIRCUITO 34 CAR WASH')
-                # Add more values later:
-                # | Q(descripcion__icontains='ANOTHER PURCHASE')
-            )
-
-
-    if sort_direction == 'desc':
-        order_by = f'-{order_by}'
-    tcs_transactions = tcs_transactions.order_by(order_by)
-
-    # If you still want to display companies for other purposes, keep this line.
-    companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
-
-    paginator = Paginator(tcs_transactions, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
-    context = {
-        'tcs_transactions': page_obj,
-        'page_obj': page_obj,
-        'companias': companias, # Still passing companias even if not directly used in the new filter
-        'current_order': order_by.lstrip('-'),
-        'current_direction': 'desc' if order_by.startswith('-') else 'asc',
-        'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction', 'category_filter']},
-        'selected_category': category_filter, # Pass the selected category back to the template
-        'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
-    }
-
-    return render(request, 'tcs.html', context)
-
-
-@login_required
-def import_tcs(request):
-    """View for importing credit card data from PDF files and saving to TCS model"""
-    if request.method == 'POST' and request.FILES.getlist('visa_pdf_files'):
-        pdf_files = request.FILES.getlist('visa_pdf_files')
-        password = request.POST.get('visa_pdf_password', '')
-
-        try:
-            # Ensure visa directory exists
-            visa_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'visa')
-            os.makedirs(visa_dir, exist_ok=True)
-
-            # Save all PDF files
-            for pdf_file in pdf_files:
-                dest_path = os.path.join(visa_dir, pdf_file.name)
-                with open(dest_path, 'wb+') as destination:
-                    for chunk in pdf_file.chunks():
-                        destination.write(chunk)
-
-            # Process the PDFs using tcs.py
-            subprocess.run(['python', 'core/tcs.py'], check=True, cwd=settings.BASE_DIR)
-
-            # Find the latest generated Excel file by tcs.py
-            latest_visa_file = None
-            latest_mtime = 0
-            for f_name in os.listdir(visa_dir):
-                if f_name.startswith('VISA_') and f_name.endswith('.xlsx'):
-                    f_path = os.path.join(visa_dir, f_name)
-                    mtime = os.path.getmtime(f_path)
-                    if mtime > latest_mtime:
-                        latest_mtime = mtime
-                        latest_visa_file = f_path
-
-            record_count = 0
-            if latest_visa_file:
-                df = pd.read_excel(latest_visa_file)
-                df.columns = [col.lower().replace(' ', '_').replace('.', '').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u') for col in df.columns]
-
-                for _, row in df.iterrows():
-                    try:
-                        # For this example, we'll use the 'tarjetahabiente' as a loose identifier.
-                        tarjetahabiente_name = row.get('tarjetahabiente', '').strip()
-                        # Assuming the tarjetahabiente name in the TCS report might match a person's full name
-                        person = None
-                        if tarjetahabiente_name:
-                            # Try to find a person by full name
-                            person = Person.objects.filter(nombre_completo__iexact=tarjetahabiente_name).first()
-                            # If not found by full name, try to find by a partial match (e.g., first name, last name)
-                            if not person and len(tarjetahabiente_name.split()) > 1:
-                                first_name = tarjetahabiente_name.split()[0]
-                                last_name = tarjetahabiente_name.split()[-1]
-                                person = Person.objects.filter(
-                                    Q(nombre_completo__icontains=first_name) &
-                                    Q(nombre_completo__icontains=last_name)
-                                ).first()
-
-                        if not person:
-                            # If no person is found, you might want to create a placeholder Person
-                            # or skip this transaction. For now, we'll skip.
-                            messages.warning(request, f"Skipping TCS transaction for unknown person: {tarjetahabiente_name}")
-                            continue
-
-                        # Clean numeric values for float fields
-                        valor_original = _clean_numeric_value(row.get('valor_original'))
-                        cargos_abonos = _clean_numeric_value(row.get('cargos_y_abonos'))
-                        saldo_a_diferir = _clean_numeric_value(row.get('saldo_a_diferir'))
-
-                        # Convert date string to date object
-                        fecha_transaccion_str = row.get('fecha_de_transaccion')
-                        fecha_transaccion = None
-                        if pd.notna(fecha_transaccion_str):
-                            try:
-                                fecha_transaccion = datetime.strptime(str(fecha_transaccion_str), '%d/%m/%Y').date()
-                            except ValueError:
-                                try: # Try another common format if the first fails
-                                    fecha_transaccion = datetime.strptime(str(fecha_transaccion_str), '%Y-%m-%d %H:%M:%S').date()
-                                except ValueError:
-                                    messages.warning(request, f"Could not parse date '{fecha_transaccion_str}' for transaction.")
-
-
-                        TCS.objects.update_or_create(
-                            person=person,
-                            numero_tarjeta=str(row.get('numero_de_tarjeta', '')),
-                            fecha_transaccion=fecha_transaccion,
-                            descripcion=row.get('descripcion', ''),
-                            valor_original=valor_original,
-                            defaults={
-                                'archivo': row.get('archivo', ''),
-                                'tarjetahabiente': tarjetahabiente_name,
-                                'numero_autorizacion': str(row.get('numero_de_autorizacion', '')),
-                                'tasa_pactada': str(row.get('tasa_pactada', '')),
-                                'tasa_ea_facturada': str(row.get('tasa_ea_facturada', '')),
-                                'cargos_abonos': cargos_abonos,
-                                'saldo_a_diferir': saldo_a_diferir,
-                                'cuotas': str(row.get('cuotas', '')),
-                                'pagina': _clean_numeric_value(row.get('pagina')),
-                            }
-                        )
-                        record_count += 1
-                    except Exception as e:
-                        messages.error(request, f"Error processing TCS row: {row.to_dict()} - {str(e)}")
-                        continue
-
-            messages.success(request, f'Archivos de tarjetas procesados exitosamente! {record_count} transacciones importadas al modelo.')
-        except subprocess.CalledProcessError as e:
-            messages.error(request, f'Error procesando archivos PDF: {str(e)}')
-        except Exception as e:
-            messages.error(request, f'Error procesando archivos de tarjetas: {str(e)}')
-
-        return HttpResponseRedirect('/import/')
-
-    return HttpResponseRedirect('/import/')
-
 @login_required
 def import_finances(request):
     """View for importing protected Excel files and running analysis"""
@@ -1788,13 +1468,11 @@ def person_details(request, cedula):
         person = Person.objects.get(cedula=cedula)
         conflicts = Conflict.objects.filter(person=person)
         financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') # Fetch financial reports
-        tcs_transactions = TCS.objects.filter(person=person).order_by('-fecha_transaccion') # Fetch TCS transactions
 
         context = {
             'myperson': person,
             'conflicts': conflicts,
             'financial_reports': financial_reports, # Pass financial reports to context
-            'tcs_transactions': tcs_transactions, # Pass TCS transactions to context
             'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
         }
 
@@ -4077,7 +3755,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -4136,7 +3814,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
 
     <div class="col-md-3 mb-4">
-        <a href="{% url 'tcs_list' %}" class="card h-100 text-decoration-none text-dark">
+        <a href="" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                 <i class="far fa-credit-card fa-3x text-info mb-2"></i>
                 <h5 class="card-title mb-1">Tarjetas de Credito</h5>
@@ -4180,7 +3858,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
     {# New div for Restaurantes count #}
     <div class="col-md-3 mb-4">
-        <a href="{% url 'tcs_list' %}?category_filter=restaurantes" class="card h-100 text-decoration-none text-dark">
+        <a href="" class="card h-100 text-decoration-none text-dark">
             <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                 <i class="fas fa-utensils fa-3x text-secondary mb-2"></i> {# Icon for restaurants #}
                 <h5 class="card-title mb-1">Transacciones en Restaurantes</h5>
@@ -4353,7 +4031,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -4504,7 +4182,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
+                <form method="post" enctype="multipart/form-data" action="">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple accept=".pdf" required>
@@ -4621,7 +4299,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -4865,7 +4543,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -5550,7 +5228,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -6540,7 +6218,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -7020,7 +6698,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
