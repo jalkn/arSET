@@ -664,15 +664,29 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
 @login_required
 def main(request):
-    context = {}
-    context['person_count'] = Person.objects.count()
-    context['conflict_count'] = Conflict.objects.count()
-    context['finances_count'] = FinancialReport.objects.count()
-    context['active_person_count'] = Person.objects.filter(estado='Activo').count()
-    context['accionista_grupo_count'] = Conflict.objects.filter(q3=True).count()
-    context['aum_pat_subito_alert_count'] = FinancialReport.objects.filter(aum_pat_subito__gt=2).count()
-    context['alerts_count'] = Person.objects.filter(revisar=True).count()
-
+    """
+    Main dashboard view. Gathers counts for various data types and passes them to the home template.
+    """
+    context = {
+        'person_count': Person.objects.count(),
+        'conflict_count': Conflict.objects.count(),
+        'finances_count': FinancialReport.objects.count(),
+        'alerts_count': Person.objects.filter(revisar=True).count(),
+        'accionista_grupo_count': Conflict.objects.filter(q3='True').count(),
+        # Count for Aum. Pat. Subito > 2, as seen in the original home.html
+        'aum_pat_subito_alert_count': FinancialReport.objects.filter(aum_pat_subito__gt=2).count(),
+        # New counts for declarations per year
+        'declarations_2021_count': FinancialReport.objects.filter(ano_declaracion=2021).count(),
+        'declarations_2022_count': FinancialReport.objects.filter(ano_declaracion=2022).count(),
+        'declarations_2023_count': FinancialReport.objects.filter(ano_declaracion=2023).count(),
+        'declarations_2024_count': FinancialReport.objects.filter(ano_declaracion=2024).count(),
+        # Corrected counts for conflicts per year, based on the 'fecha_inicio' field from the Conflict model
+        'conflicts_2021_count': Conflict.objects.filter(fecha_inicio__year=2021).count(),
+        'conflicts_2022_count': Conflict.objects.filter(fecha_inicio__year=2022).count(),
+        'conflicts_2023_count': Conflict.objects.filter(fecha_inicio__year=2023).count(),
+        'conflicts_2024_count': Conflict.objects.filter(fecha_inicio__year=2024).count(),
+    }
+    
     return render(request, 'home.html', context)
 
 @login_required
@@ -3743,6 +3757,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 # Create home template
 @"
 {% extends "master.html" %}
+{% load humanize %}
+{% load static %}
 
 {% block title %}A R P A{% endblock %}
 {% block navbar_title %}Dashboard{% endblock %}
@@ -3782,92 +3798,200 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'person_list' %}" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-users fa-3x text-primary mb-2"></i> {# Adjusted margin-bottom #}
-                <h5 class="card-title mb-1">Personas</h5> {# Adjusted margin-bottom #}
-                <h2 class="card-text">{{ person_count }}</h2> {# Larger text for count #}
-            </div>
-        </a>
+<div class="container-fluid mt-3">
+    <div class="row">
+        <!-- Dashboard cards -->
+        <!-- Div for Person count -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'person_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-users fa-3x text-primary mb-2"></i>
+                    <h5 class="card-title mb-1">Total de Personas</h5>
+                    <h2 class="card-text">{{ person_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
+
+        <!-- Div for Conflict count -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-balance-scale fa-3x text-orange mb-2" style="color: orange;" ></i>
+                    <h5 class="card-title mb-1">Conflictos de Interes</h5>
+                    <h2 class="card-text">{{ conflict_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
+
+        <!-- Div for Financial Report count -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'financial_report_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
+                    <h5 class="card-title mb-1">Bienes y Rentas</h5>
+                    <h2 class="card-text">{{ finances_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
+
+
+
+        <!-- Div for Alerts count -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'alerts_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-bell fa-3x text-danger mb-2"></i>
+                    <h5 class="card-title mb-1">Alertas</h5>
+                    <h2 class="card-text">{{ alerts_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
     </div>
 
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-balance-scale fa-3x text-warning mb-2"></i>
-                <h5 class="card-title mb-1">Conflictos</h5>
-                <h2 class="card-text">{{ conflict_count }}</h2>
-            </div>
-        </a>
+    <!-- Second row for more specific cards -->
+    <div class="row">
+        <!-- New div for Accionista del Grupo count, with corrected link -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-handshake fa-3x text-success mb-2"></i>
+                    <h5 class="card-title mb-1">Accionista del Grupo</h5>
+                    <h2 class="card-text">{{ accionista_grupo_count }}</h2>
+                </div>
+            </a>
+        </div>
+        <!-- New div for Aum. Pat. Subito > 2 -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-arrow-alt-circle-up fa-3x text-danger mb-2"></i>
+                    <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
+                    <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
+                </div>
+            </a>
+        </div>
     </div>
 
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'financial_report_list' %}" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
-                <h5 class="card-title mb-1">Bienes y Rentas</h5>
-                <h2 class="card-text">{{ finances_count }}</h2>
+    <!-- Chart section for declarations -->
+    <div class="row my-4">
+        <!-- New Chart section for conflicts -->
+        <div class="col-12 col-lg-6">
+            <div class="card p-3 h-100">
+                <h5 class="card-title text-center">Declaracion de Conflictos por aNo</h5>
+                <canvas id="conflictsChart"></canvas>
             </div>
-        </a>
-    </div>
-
-    <div class="col-md-3 mb-4">
-        <a href="" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="far fa-credit-card fa-3x text-info mb-2"></i>
-                <h5 class="card-title mb-1">Tarjetas de Credito</h5>
-                <h2 class="card-text">{{ tc_count }}</h2>
+        </div>
+        <div class="col-12 col-lg-6">
+            <div class="card p-3 h-100">
+                <h5 class="card-title text-center">Declaraciones B&R por aNo</h5>
+                <canvas id="declarationsChart"></canvas>
             </div>
-        </a>
-    </div>
-
-    {# New div for Active Persons #}
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'person_list' %}?status=Activo" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-user-check fa-3x text-success mb-2"></i> {# Using a different icon, e.g., user-check #}
-                <h5 class="card-title mb-1">Personas Activas</h5>
-                <h2 class="card-text">{{ active_person_count }}</h2>
-            </div>
-        </a>
-    </div>
-
-    {# New div for Accionista del Grupo #}
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-handshake fa-3x text-success mb-2"></i> {# Using a different icon, e.g., handshake #}
-                <h5 class="card-title mb-1">Accionista del Grupo</h5>
-                <h2 class="card-text">{{ accionista_grupo_count }}</h2>
-            </div>
-        </a>
-    </div>
-
-    {# New div for Aum. Pat. Subito > 2 #}
-    <div class="col-md-3 mb-4">
-        <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-arrow-alt-circle-up fa-3x text-danger mb-2"></i>
-                <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
-                <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
-            </div>
-        </a>
-    </div>
-
-    {# New div for Restaurantes count #}
-    <div class="col-md-3 mb-4">
-        <a href="" class="card h-100 text-decoration-none text-dark">
-            <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                <i class="fas fa-utensils fa-3x text-secondary mb-2"></i> {# Icon for restaurants #}
-                <h5 class="card-title mb-1">Transacciones en Restaurantes</h5>
-                <h2 class="card-text">{{ restaurantes_count }}</h2>
-            </div>
-        </a>
+        </div>
     </div>
 
 </div>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Chart for Declarations by year
+        const declarationsCtx = document.getElementById('declarationsChart').getContext('2d');
+        const declarationsChart = new Chart(declarationsCtx, {
+            type: 'bar',
+            data: {
+                labels: ['2021', '2022', '2023', '2024'],
+                datasets: [{
+                    label: 'NUmero de Declaraciones',
+                    data: [
+                        "{{ declarations_2021_count|default:0 }}",
+                        "{{ declarations_2022_count|default:0 }}",
+                        "{{ declarations_2023_count|default:0 }}",
+                        "{{ declarations_2024_count|default:0 }}"
+                    ],
+                    backgroundColor: [
+                        '#1f77b4', // Stronger blue
+                        '#ff7f0e', // Stronger orange
+                        '#2ca02c', // Stronger green
+                        '#9467bd'  // Stronger purple
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cantidad'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'aNo'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+
+        // New Chart for Conflicts by year
+        const conflictsCtx = document.getElementById('conflictsChart').getContext('2d');
+        const conflictsChart = new Chart(conflictsCtx, {
+            type: 'bar',
+            data: {
+                labels: ['2021', '2022', '2023', '2024'],
+                datasets: [{
+                    label: 'NUmero de Conflictos',
+                    data: [
+                        "{{ conflicts_2021_count|default:0 }}",
+                        "{{ conflicts_2022_count|default:0 }}",
+                        "{{ conflicts_2023_count|default:0 }}",
+                        "{{ conflicts_2024_count|default:0 }}"
+                    ],
+                    backgroundColor: [
+                        '#d62728', // Stronger red
+                        'blue', // Stronger brown
+                        '#e377c2', // Stronger pink
+                        '#7f7f7f'  // Stronger grey
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Cantidad'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'aNo'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    });
+</script>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/home.html" -Encoding utf8
 
