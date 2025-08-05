@@ -672,7 +672,8 @@ def main(request):
         'conflict_count': Conflict.objects.count(),
         'finances_count': FinancialReport.objects.count(),
         'alerts_count': Person.objects.filter(revisar=True).count(),
-        'accionista_grupo_count': Conflict.objects.filter(q3='True').count(),
+        # Corrected count for Accionista del Grupo to count distinct persons
+        'accionista_grupo_count': Person.objects.filter(conflicts__q3=True).distinct().count(), # Changed from conflict__q3 to conflicts__q3
         # Count for Aum. Pat. Subito > 2, as seen in the original home.html
         'aum_pat_subito_alert_count': FinancialReport.objects.filter(aum_pat_subito__gt=2).count(),
         # New counts for declarations per year
@@ -685,8 +686,12 @@ def main(request):
         'conflicts_2022_count': Conflict.objects.filter(fecha_inicio__year=2022).count(),
         'conflicts_2023_count': Conflict.objects.filter(fecha_inicio__year=2023).count(),
         'conflicts_2024_count': Conflict.objects.filter(fecha_inicio__year=2024).count(),
+        # Count for active persons
+        'active_person_count': Person.objects.filter(estado='Activo').count(),
+        # Count for retired persons
+        'retired_person_count': Person.objects.filter(estado='Retirado').count(),
     }
-    
+
     return render(request, 'home.html', context)
 
 @login_required
@@ -3811,13 +3816,22 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </div>
             </a>
         </div>
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'person_list' %}?status=Retirado" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-user-times fa-3x text-secondary mb-2"></i> {# Icon for retired person #}
+                    <h5 class="card-title mb-1">Personas Retiradas</h5>
+                    <h2 class="card-text">{{ retired_person_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
 
         <!-- Div for Conflict count -->
         <div class="col-md-3 mb-4">
             <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
                 <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                     <i class="fas fa-balance-scale fa-3x text-orange mb-2" style="color: orange;" ></i>
-                    <h5 class="card-title mb-1">Conflictos de Interes</h5>
+                    <h5 class="card-title mb-1">Declaraciones de Conflictos</h5>
                     <h2 class="card-text">{{ conflict_count|intcomma }}</h2>
                 </div>
             </a>
@@ -3828,21 +3842,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             <a href="{% url 'financial_report_list' %}" class="card h-100 text-decoration-none text-dark">
                 <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                     <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
-                    <h5 class="card-title mb-1">Bienes y Rentas</h5>
+                    <h5 class="card-title mb-1">Declaraciones B&R</h5>
                     <h2 class="card-text">{{ finances_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-
-
-
-        <!-- Div for Alerts count -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'alerts_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-bell fa-3x text-danger mb-2"></i>
-                    <h5 class="card-title mb-1">Alertas</h5>
-                    <h2 class="card-text">{{ alerts_count|intcomma }}</h2>
                 </div>
             </a>
         </div>
@@ -3850,13 +3851,22 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
     <!-- Second row for more specific cards -->
     <div class="row">
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'person_list' %}?status=Activo" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-running fa-3x text-success mb-2"></i> {# Changed icon and color #}
+                    <h5 class="card-title mb-1">Personas Activas</h5>
+                    <h2 class="card-text">{{ active_person_count|intcomma }}</h2> {# You'll need to pass active_person_count from your view #}
+                </div>
+            </a>
+        </div>
         <!-- New div for Accionista del Grupo count, with corrected link -->
         <div class="col-md-3 mb-4">
             <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
                 <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
                     <i class="fas fa-handshake fa-3x text-success mb-2"></i>
                     <h5 class="card-title mb-1">Accionista del Grupo</h5>
-                    <h2 class="card-text">{{ accionista_grupo_count }}</h2>
+                    <h2 class="card-text">{{ accionista_grupo_count|intcomma }}</h2> 
                 </div>
             </a>
         </div>
@@ -3867,6 +3877,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <i class="fas fa-arrow-alt-circle-up fa-3x text-danger mb-2"></i>
                     <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
                     <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
+                </div>
+            </a>
+        </div>
+        <!-- Div for Alerts count -->
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'alerts_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-bell fa-3x text-danger mb-2"></i>
+                    <h5 class="card-title mb-1">Alertas</h5>
+                    <h2 class="card-text">{{ alerts_count|intcomma }}</h2>
                 </div>
             </a>
         </div>
