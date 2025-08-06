@@ -3752,6 +3752,12 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% block content %}
         {% endblock %}
     </div>
+
+    <footer class="footer mt-auto py-3 bg-light">
+        <div class="container text-center">
+            <span class="text-muted">&copy; A R P A 2 0 2 5</span>
+        </div>
+    </footer>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{% static 'js/freeze_columns.js' %}"></script>
@@ -3897,13 +3903,13 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         <!-- New Chart section for conflicts -->
         <div class="col-12 col-lg-6">
             <div class="card p-3 h-100">
-                <h5 class="card-title text-center">Declaracion de Conflictos por aNo</h5>
+                <h5 class="card-title text-center">Declaracion de Conflictos Anual</h5>
                 <canvas id="conflictsChart"></canvas>
             </div>
         </div>
         <div class="col-12 col-lg-6">
             <div class="card p-3 h-100">
-                <h5 class="card-title text-center">Declaraciones B&R por aNo</h5>
+                <h5 class="card-title text-center">Declaraciones B&R Anual</h5>
                 <canvas id="declarationsChart"></canvas>
             </div>
         </div>
@@ -3951,7 +3957,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     x: {
                         title: {
                             display: true,
-                            text: 'aNo'
+                            text: 'Anual'
                         }
                     }
                 },
@@ -3970,7 +3976,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             data: {
                 labels: ['2021', '2022', '2023', '2024'],
                 datasets: [{
-                    label: 'NUmero de Conflictos',
+                    label: 'NUmero de Declaraciones',
                     data: [
                         "{{ conflicts_2021_count|default:0 }}",
                         "{{ conflicts_2022_count|default:0 }}",
@@ -3978,7 +3984,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         "{{ conflicts_2024_count|default:0 }}"
                     ],
                     backgroundColor: [
-                        '#d62728', // Stronger red
+                        'orange', // Stronger red
                         'blue', // Stronger brown
                         '#e377c2', // Stronger pink
                         '#7f7f7f'  // Stronger grey
@@ -3999,7 +4005,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     x: {
                         title: {
                             display: true,
-                            text: 'aNo'
+                            text: 'Anual'
                         }
                     }
                 },
@@ -5951,22 +5957,21 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <tbody>
                     {% for report in financial_reports %}
                         <tr {% if report.person.revisar %}class="table-warning"{% endif %} data-person-cedula="{{ report.person.cedula }}" data-ano-declaracion="{{ report.ano_declaracion }}">
+                            {% if report.person and report.person.cedula %}
                             <td>
-                                {# Revert to a standard form submission #}
-                                <form action="{% url 'toggle_revisar_status' report.person.cedula %}" method="post" style="display:inline;">
-                                    {% csrf_token %}
-                                    <button type="submit" {# CHANGED BACK to type="submit" #}
-                                            class="btn btn-link p-0 border-0 bg-transparent" {# Keep styling for icon appearance #}
-                                            title="{% if report.person.revisar %}Desmarcar para Revisar{% else %}Marcar para Revisar{% endif %}">
-                                        <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"
-                                        style="padding-left: 20px; font-size: 1.25rem;"></i>
-                                    </button>
-                                </form>
+                                <a href="#" class="btn-toggle-revisar" data-cedula="{{ report.person.cedula }}" title="{% if report.person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                    <i class="fas fa-{% if report.person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                </a>
                             </td>
+                            {% else %}
+                            <td>
+                                <i class="fas fa-exclamation-triangle text-danger" title="Error: No Cedula"></i>
+                            </td>
+                            {% endif %}
 
-                            <td>{{ report.person.nombre_completo }}</td>
-                            <td>{{ report.person.compania }}</td>
-                            <td>{{ report.person.cargo }}</td>
+                            <td>{{ report.person.nombre_completo|default:"" }}</td>
+                            <td>{{ report.person.compania|default:"" }}</td>
+                            <td>{{ report.person.cargo|default:"" }}</td>
                             <td>{{ report.person.comments|truncatechars:30|default:"" }}</td>
                             <td>{{ report.fk_id_periodo|floatformat:"0"|default:"-" }}</td>
                             <td>{{ report.ano_declaracion|floatformat:"0"|default:"-" }}</td>
@@ -6100,11 +6105,15 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td data-field="cant_inversiones">{{ report.cant_inversiones|floatformat:"0"|intcomma|default:"0" }}</td>
                             
                             <td class="table-fixed-column">
-                                <a href="{% url 'person_details' report.person.cedula %}"
-                                class="btn btn-custom-primary btn-sm"
-                                title="View person details">
-                                    <i class="bi bi-person-vcard-fill"></i>
-                                </a>
+                                {% if report.person and report.person.cedula %}
+                                    <a href="{% url 'person_details' report.person.cedula %}"
+                                    class="btn btn-custom-primary btn-sm"
+                                    title="View person details">
+                                        <i class="bi bi-person-vcard-fill"></i>
+                                    </a>
+                                {% else %}
+                                    <span title="No person details available">&#x2014;</span>
+                                {% endif %}
                             </td>
                         </tr>
                     {% empty %}
@@ -6166,6 +6175,73 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
 
 <script>
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Find all the buttons inside the 'revisar-form' forms
+        const revisarButtons = document.querySelectorAll('.revisar-form button[type="submit"]');
+
+        revisarButtons.forEach(button => {
+            button.addEventListener('click', function(event) {
+                // Prevent the default form submission and any parent click handlers
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Find the closest parent form and submit it programmatically
+                const form = this.closest('form');
+                if (form) {
+                    form.submit();
+                }
+            });
+        });
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.btn-toggle-revisar').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                const cedula = this.getAttribute('data-cedula');
+                if (cedula) {
+                    const form = document.createElement('form');
+                    form.action = "{% url 'toggle_revisar_status' 'placeholder' %}".replace('placeholder', cedula);
+                    form.method = 'POST';
+                    
+                    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+                    const csrfInput = document.createElement('input');
+                    csrfInput.type = 'hidden';
+                    csrfInput.name = 'csrfmiddlewaretoken';
+                    csrfInput.value = csrfToken;
+                    form.appendChild(csrfInput);
+                    
+                    document.body.appendChild(form);
+                    form.submit();
+                }
+            });
+        });
+    });
+
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Find all the buttons inside the 'revisar-form' forms
+        const revisarButtons = document.querySelectorAll('.revisar-form button[type="submit"]');
+
+        revisarButtons.forEach(button => {
+            button.addEventListener('click', function(event) {
+                // Prevent the default form submission and any parent click handlers
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Find the closest parent form and submit it programmatically
+                const form = this.closest('form');
+                if (form) {
+                    form.submit();
+                }
+            });
+        });
+    });
+
+
     let filterCount = 0; // Global counter for filter groups
 
     // Function to show/hide value2 input based on operator
@@ -7060,8 +7136,8 @@ ADMIN_SITE_HEADER = "A R P A"
 ADMIN_SITE_TITLE = "ARPA Admin Portal"
 ADMIN_INDEX_TITLE = "Bienvenido a A R P A"
 
-LOGIN_REDIRECT_URL = '/'  # Where to redirect after login
-LOGOUT_REDIRECT_URL = '/accounts/login/'  # Where to redirect after logout
+LOGIN_REDIRECT_URL = '/'  
+LOGOUT_REDIRECT_URL = '/accounts/login/'  
 "@
 
     # Run migrations
