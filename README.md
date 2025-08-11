@@ -30,3 +30,57 @@ python manage.py runserver
 ## 3. Results
 
 After "Analyze File", the `core/src/` folder will contain the analysis results in Excel files. 
+
+## 3. Results
+
+The resulting structure will be similar to the following:     
+
+```
+arpa/                      # Django project root
+├── arpa/                  # Project configuration
+│   ├── __init__.py
+│   ├── asgi.py
+│   ├── settings.py        # Modified with core app and static files
+│   ├── urls.py            # Configured with core URLs
+│   └── wsgi.py
+│
+├── core/                  # Main app
+│   ├── migrations/        
+│   ├── static/            # Static files
+│   │   └── core/
+│   │       └── css/
+│   │           └── style.css
+│   │
+│   ├── templates/         # HTML templates
+│   │   ├── admin/
+│   │   │   └── base_site.html
+│   │   ├── details.html
+│   │   ├── import_excel.html
+│   │   ├── master.html
+│   │   └── persons.html
+│   │
+│   ├── src/               # Data storage
+│   │   ├── personas.xlsx
+│   │   ├── categorias.xlsx
+│   │   ├── TC_20250811_1524.xlsx
+│   │   ├── 24. 2.  MC GA enero 2025.pdf
+│   │   ├── cedulas.xlsx
+│   │   └── TRM.xlsx
+│   │
+│   ├── admin.py           # Custom admin config
+│   ├── apps.py
+│   ├── cats.py            # Categories analysis
+│   ├── conflicts.py       # Conflict data processor
+│   ├── idTrends.py        # Trends analysis
+│   ├── inTrends.py        # Trends with conflicts
+│   ├── models.py          # Person model
+│   ├── nets.py            # Net analysis
+│   ├── passKey.py         # Excel password handler
+│   ├── trends.py          # Trend analysis
+│   ├── urls.py            # App URLs
+│   ├── tcs.py             # Credit Cards
+│   └── views.py           # All view functions
+│
+├── manage.py
+└── db.sqlite3        
+```     
