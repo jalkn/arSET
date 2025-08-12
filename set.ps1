@@ -422,7 +422,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
-                   export_persons_excel, alerts_list, save_comment, delete_comment)
+                   export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -461,6 +461,7 @@ urlpatterns = [
     path('import/', ImportView.as_view(), name='import'),
     path('import-persons/', views.import_persons, name='import_persons'),
     path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
+    path('import-tcs/', views.import_tcs, name='import_tcs'),
     path('persons/', views.person_list, name='person_list'),
     path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), 
     path('conflicts/', views.conflict_list, name='conflict_list'),
@@ -488,7 +489,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
-from django.shortcuts import render
 from core.models import Person, Conflict, FinancialReport
 from django.db.models import Q
 import subprocess
@@ -497,6 +497,7 @@ import io
 import re
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect
+from . import tcs 
 
 @login_required
 @require_POST
@@ -613,32 +614,11 @@ class ImportView(LoginRequiredMixin, TemplateView):
         if conflicts_status['status'] == 'success':
             context['conflict_count'] = conflicts_status['records']
 
-        # --- Status for Tarjetas de Credito ---
-        # The TCS model now directly tracks this, but we can still show the latest file status
-        visa_dir = os.path.join(core_src_dir, 'visa')
-        latest_visa_file = None
-        latest_mtime = 0
-        if os.path.exists(visa_dir):
-            for f_name in os.listdir(visa_dir):
-                if f_name.startswith('VISA_') and f_name.endswith('.xlsx'):
-                    f_path = os.path.join(visa_dir, f_name)
-                    mtime = os.path.getmtime(f_path)
-                    if mtime > latest_mtime:
-                        latest_mtime = mtime
-                        latest_visa_file = f_path
-
-        visa_status = {'filename': 'Tarjetas de Credito', 'records': '-', 'status': 'pending', 'last_updated': None, 'error': None}
-        if latest_visa_file:
-            try:
-                df = pd.read_excel(latest_visa_file)
-                visa_status['records'] = len(df)
-                visa_status['status'] = 'success'
-                visa_status['last_updated'] = datetime.fromtimestamp(latest_mtime)
-                # context['tc_count'] is now from the model, no need to update from file here
-            except Exception as e:
-                visa_status['status'] = 'error'
-                visa_status['error'] = f"Error reading file: {str(e)}"
-        analysis_results.append(visa_status)
+        # --- Status for tcs.xlsx ---
+        tcs_status = get_file_status('tcs.xlsx')
+        analysis_results.append(tcs_status)
+        if tcs_status['status'] == 'success':
+            context['tcs_count'] = tcs_status['records']
 
         # --- Status for Nets.py output files ---
         analysis_results.append(get_file_status('bankNets.xlsx'))
@@ -1583,6 +1563,49 @@ def delete_comment(request, cedula, comment_index):
             pass # For now, silently ignore invalid index
     
     return redirect('person_details', cedula=cedula)
+
+
+def import_tcs(request):
+    """
+    Handles the upload of PDF files for credit card statements, saves them to
+    the src/ directory, and then processes them using the tcs.py script.
+    """
+    if request.method == 'POST':
+        # Retrieve PDF files and password from the form
+        pdf_files = request.FILES.getlist('visa_pdf_files')
+        pdf_password = request.POST.get('visa_pdf_password', '')
+
+        # Define the path to save the uploaded PDFs
+        upload_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
+        os.makedirs(upload_dir, exist_ok=True) 
+
+        uploaded_file_names = []
+        for pdf_file in pdf_files:
+            file_path = os.path.join(upload_dir, pdf_file.name)
+            try:
+                with open(file_path, 'wb+') as destination:
+                    for chunk in pdf_file.chunks():
+                        destination.write(chunk)
+                uploaded_file_names.append(pdf_file.name)
+            except Exception as e:
+                messages.error(request, f"Error al subir el archivo '{pdf_file.name}': {e}", extra_tags='import_tcs')
+                return redirect('import')
+
+        if uploaded_file_names:
+            try:
+
+                tcs.input_base_folder = upload_dir 
+                tcs.pdf_password = pdf_password 
+                tcs.run_pdf_processing() 
+
+                messages.success(request, "Archivos PDF de TCs procesados correctamente. Se generará un archivo Excel unificado en core/src/.", extra_tags='import_tcs')
+
+            except Exception as e:
+                messages.error(request, f"Error al procesar los PDFs de TCs: {e}", extra_tags='import_tcs')
+        else:
+            messages.warning(request, "No se seleccionaron archivos PDF para importar.", extra_tags='import_tcs')
+
+    return redirect('import')
 "@
 
 # Create core/conflicts.py
@@ -3006,36 +3029,43 @@ import pdfplumber
 import pandas as pd
 from datetime import datetime
 
-# --- Configuration ---
-input_base_folder = "src"
-output_base_folder = "Resultados" # Base folder for all results
-trm_file = os.path.join(input_base_folder, "TRM.xlsx")
+# --- Configuration (can be modified by views.py) ---
+input_base_folder = "core/src/extractos" 
+output_base_folder = "core/src" 
+trm_file = os.path.join("core/src", "TRM.xlsx")
 trm_sheet = "Datos"
-categorias_file = os.path.join(input_base_folder, "categorias.xlsx")
-cedulas_file = os.path.join(input_base_folder, "cedulas.xlsx") 
+categorias_file = os.path.join("core/src", "categorias.xlsx")
+cedulas_file = os.path.join("core/src", "cedulas.xlsx") 
 pdf_password = "" 
+
+# Global variables for input/output folders and password, to be set by the caller (views.py)
+input_base_folder = "core/src/extractos" 
+output_base_folder = "core/src" 
 
 # Create output base folder if it doesn't exist
 os.makedirs(output_base_folder, exist_ok=True)
+os.makedirs(input_base_folder, exist_ok=True)
 
 # --- TRM Data Loading ---
-trm_df = pd.DataFrame() # Initialize an empty DataFrame
+trm_df = pd.DataFrame() 
 trm_loaded = False
 
-if os.path.exists(trm_file):
-    try:
-        trm_df = pd.read_excel(trm_file, sheet_name=trm_sheet)
-        trm_df.columns = trm_df.columns.str.strip()
-        trm_df["Fecha"] = pd.to_datetime(trm_df["Fecha"], errors='coerce')
-        trm_df["TRM"] = trm_df["Tasa Representativa del Mercado (TRM)"].astype(str).str.replace(",", "").astype(float)
-        trm_df = trm_df[["Fecha", "TRM"]]
-        trm_loaded = True
-        print(f"✅ TRM file '{trm_file}' loaded successfully.")
-    except Exception as e:
-        print(f"⚠️ Error loading TRM file '{trm_file}': {e}. MC currency conversion will not be available.")
-else:
-    print(f"⚠️ TRM file '{trm_file}' not found. MC currency conversion will not be available.")
-
+# Function to load TRM data
+def load_trm_data():
+    global trm_df, trm_loaded
+    if os.path.exists(trm_file):
+        try:
+            trm_df = pd.read_excel(trm_file, sheet_name=trm_sheet)
+            trm_df.columns = trm_df.columns.str.strip()
+            trm_df["Fecha"] = pd.to_datetime(trm_df["Fecha"], errors='coerce')
+            trm_df["TRM"] = trm_df["Tasa Representativa del Mercado (TRM)"].astype(str).str.replace(",", "").astype(float)
+            trm_df = trm_df[["Fecha", "TRM"]]
+            trm_loaded = True
+            print(f"✅ TRM file '{trm_file}' loaded successfully.")
+        except Exception as e:
+            print(f"⚠️ Error loading TRM file '{trm_file}': {e}. MC currency conversion will not be available.")
+    else:
+        print(f"⚠️ TRM file '{trm_file}' not found. MC currency conversion will not be available.")
 
 def obtener_trm(fecha):
     if trm_loaded and pd.isna(fecha):
@@ -3059,39 +3089,41 @@ def formato_excel(valor):
 categorias_df = pd.DataFrame()
 categorias_loaded = False
 
-if os.path.exists(categorias_file):
-    try:
-        categorias_df = pd.read_excel(categorias_file)
-        # Ensure 'Descripción' column exists and is stripped of whitespace
-        if 'Descripción' in categorias_df.columns:
-            categorias_df['Descripción'] = categorias_df['Descripción'].astype(str).str.strip()
-            categorias_loaded = True
-            print(f"✅ Categorias file '{categorias_file}' loaded successfully.")
-        else:
-            print(f"⚠️ Categorias file '{categorias_file}' loaded, but 'Descripción' column not found. Categorization will not be available.")
-    except Exception as e:
-        print(f"⚠️ Error loading Categorias file '{categorias_file}': {e}. Categorization will not be available.")
-else:
-    print(f"⚠️ Categorias file '{categorias_file}' not found. Categorization will not be available.")
+def load_categorias_data():
+    global categorias_df, categorias_loaded
+    if os.path.exists(categorias_file):
+        try:
+            categorias_df = pd.read_excel(categorias_file)
+            if 'Descripción' in categorias_df.columns:
+                categorias_df['Descripción'] = categorias_df['Descripción'].astype(str).str.strip()
+                categorias_loaded = True
+                print(f"✅ Categorias file '{categorias_file}' loaded successfully.")
+            else:
+                print(f"⚠️ Categorias file '{categorias_file}' loaded, but 'Descripción' column not found. Categorization will not be available.")
+        except Exception as e:
+            print(f"⚠️ Error loading Categorias file '{categorias_file}': {e}. Categorization will not be available.")
+    else:
+        print(f"⚠️ Categorias file '{categorias_file}' not found. Categorization will not be available.")
 
 # --- Cedulas Data Loading ---
 cedulas_df = pd.DataFrame()
 cedulas_loaded = False
 
-if os.path.exists(cedulas_file):
-    try:
-        cedulas_df = pd.read_excel(cedulas_file)
-        # Ensure 'Tarjetahabiente' column exists and convert to Title Case
-        if 'Tarjetahabiente' in cedulas_df.columns:
-            cedulas_df['Tarjetahabiente'] = cedulas_df['Tarjetahabiente'].astype(str).str.title().str.strip()
-            cedulas_loaded = True
-            print(f"✅ Cedulas file '{cedulas_file}' loaded successfully.")
-        else:
-            print(f"⚠️ Cedulas file '{cedulas_file}' loaded, but 'Tarjetahabiente' column not found. Cedula data will not be available.")
-    except Exception as e:
-        print(f"⚠️ Error loading Cedulas file '{cedulas_file}': {e}. Cedula data will not be available.")
-else:
-    print(f"⚠️ Cedulas file '{cedulas_file}' not found. Cedula data will not be available.")
+def load_cedulas_data():
+    global cedulas_df, cedulas_loaded
+    if os.path.exists(cedulas_file):
+        try:
+            cedulas_df = pd.read_excel(cedulas_file)
+            if 'Tarjetahabiente' in cedulas_df.columns:
+                cedulas_df['Tarjetahabiente'] = cedulas_df['Tarjetahabiente'].astype(str).str.title().str.strip()
+                cedulas_loaded = True
+                print(f"✅ Cedulas file '{cedulas_file}' loaded successfully.")
+            else:
+                print(f"⚠️ Cedulas file '{cedulas_file}' loaded, but 'Tarjetahabiente' column not found. Cedula data will not be available.")
+        except Exception as e:
+            print(f"⚠️ Error loading Cedulas file '{cedulas_file}': {e}. Cedula data will not be available.")
+    else:
+        print(f"⚠️ Cedulas file '{cedulas_file}' not found. Cedula data will not be available.")
 
 
 # --- Regex for MC (from mc.py) ---
@@ -3109,309 +3141,322 @@ visa_pattern_transaccion = re.compile(
 visa_pattern_tarjeta = re.compile(r"TARJETA:\s+\*{12}(\d{4})")
 
 
-all_resultados = [] # Combined list for all results
+def run_pdf_processing():
+    """
+    Main function to process all PDFs in the input_base_folder.
+    This function should be called from views.py.
+    """
+    all_resultados = [] # Combined list for all results
 
-# --- Process all PDFs in the single input folder ---
-if os.path.exists(input_base_folder):
-    for archivo in sorted(os.listdir(input_base_folder)):
-        if archivo.endswith(".pdf"):
-            ruta_pdf = os.path.join(input_base_folder, archivo)
-            
-            # Use file name to determine card type
-            card_type_is_mc = "MC" in archivo.upper() or "MASTERCARD" in archivo.upper()
-            card_type_is_visa = "VISA" in archivo.upper()
-            
-            if card_type_is_mc:
-                print(f"📄 Procesando Mastercard: {archivo}")
-                try:
-                    with fitz.open(ruta_pdf) as doc:
-                        if doc.needs_pass:
-                            doc.authenticate(pdf_password)
+    load_trm_data()
+    load_categorias_data()
+    load_cedulas_data()
 
-                        moneda_actual = ""
-                        nombre = ""
-                        ultimos_digitos = ""
-                        tiene_transacciones_mc = False
+    if os.path.exists(input_base_folder):
+        for archivo in sorted(os.listdir(input_base_folder)):
+            if archivo.endswith(".pdf"):
+                ruta_pdf = os.path.join(input_base_folder, archivo)
+                
+                # Use file name to determine card type
+                card_type_is_mc = "MC" in archivo.upper() or "MASTERCARD" in archivo.upper()
+                card_type_is_visa = "VISA" in archivo.upper()
+                
+                if card_type_is_mc:
+                    print(f"📄 Procesando Mastercard: {archivo}")
+                    try:
+                        with fitz.open(ruta_pdf) as doc:
+                            if doc.needs_pass:
+                                doc.authenticate(pdf_password)
 
-                        for page_num, page in enumerate(doc, start=1):
-                            texto = page.get_text()
+                            moneda_actual = ""
+                            nombre = ""
+                            ultimos_digitos = ""
+                            tiene_transacciones_mc = False
 
-                            moneda_match = mc_moneda_regex.search(texto)
-                            if moneda_match:
-                                moneda_actual = "USD" if moneda_match.group(1) == "DOLARES" else "COP"
+                            for page_num, page in enumerate(doc, start=1):
+                                texto = page.get_text()
 
-                            if not nombre:
-                                nombre_match = mc_nombre_regex.search(texto)
-                                if nombre_match:
-                                    nombre = nombre_match.group(1).strip() # Get raw name
+                                moneda_match = mc_moneda_regex.search(texto)
+                                if moneda_match:
+                                    moneda_actual = "USD" if moneda_match.group(1) == "DOLARES" else "COP"
 
-                            if not ultimos_digitos:
-                                tarjeta_match = mc_tarjeta_regex.search(texto)
-                                if tarjeta_match:
-                                    ultimos_digitos = tarjeta_match.group(1).strip()
+                                if not nombre:
+                                    nombre_match = mc_nombre_regex.search(texto)
+                                    if nombre_match:
+                                        nombre = nombre_match.group(1).strip() # Get raw name
 
-                            for match in mc_transaccion_regex.finditer(texto):
-                                autorizacion, fecha_str, descripcion, valor_original, tasa_pactada, tasa_ea, cargo, saldo, cuotas = match.groups()
+                                if not ultimos_digitos:
+                                    tarjeta_match = mc_tarjeta_regex.search(texto)
+                                    if tarjeta_match:
+                                        ultimos_digitos = tarjeta_match.group(1).strip()
 
-                                if "ABONO DEBITO AUTOMATICO" in descripcion.upper():
-                                    continue
+                                for match in mc_transaccion_regex.finditer(texto):
+                                    autorizacion, fecha_str, descripcion, valor_original, tasa_pactada, tasa_ea, cargo, saldo, cuotas = match.groups()
 
-                                try:
-                                    fecha_transaccion = pd.to_datetime(fecha_str, dayfirst=True).date()
-                                except:
-                                    fecha_transaccion = None
+                                    if "ABONO DEBITO AUTOMATICO" in descripcion.upper():
+                                        continue
 
-                                tipo_cambio = obtener_trm(pd.to_datetime(fecha_transaccion)) if moneda_actual == "USD" else ""
-                                
+                                    try:
+                                        fecha_transaccion = pd.to_datetime(fecha_str, dayfirst=True).date()
+                                    except:
+                                        fecha_transaccion = None
+
+                                    tipo_cambio = obtener_trm(pd.to_datetime(fecha_transaccion)) if moneda_actual == "USD" else ""
+                                    
+                                    all_resultados.append({
+                                        "Archivo": archivo,
+                                        "Tipo de Tarjeta": "Mastercard", # New column
+                                        "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
+                                        "Número de Tarjeta": ultimos_digitos,
+                                        "Moneda": moneda_actual,
+                                        "Tipo de Cambio": formato_excel(str(tipo_cambio)) if tipo_cambio else "",
+                                        "Número de Autorización": autorizacion,
+                                        "Fecha de Transacción": fecha_transaccion,
+                                        "Descripción": descripcion.strip(), # Ensure description is stripped for matching
+                                        "Valor Original": formato_excel(valor_original),
+                                        "Tasa Pactada": formato_excel(tasa_pactada),
+                                        "Tasa EA Facturada": formato_excel(tasa_ea),
+                                        "Cargos y Abonos": formato_excel(cargo),
+                                        "Saldo a Diferir": formato_excel(saldo),
+                                        "Cuotas": cuotas,
+                                        "Página": page_num,
+                                    })
+                                    tiene_transacciones_mc = True
+                            
+                            if not tiene_transacciones_mc and (nombre or ultimos_digitos): # Only add if we found a cardholder/card
                                 all_resultados.append({
                                     "Archivo": archivo,
                                     "Tipo de Tarjeta": "Mastercard", # New column
                                     "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
                                     "Número de Tarjeta": ultimos_digitos,
-                                    "Moneda": moneda_actual,
-                                    "Tipo de Cambio": formato_excel(str(tipo_cambio)) if tipo_cambio else "",
-                                    "Número de Autorización": autorizacion,
-                                    "Fecha de Transacción": fecha_transaccion,
-                                    "Descripción": descripcion.strip(), # Ensure description is stripped for matching
-                                    "Valor Original": formato_excel(valor_original),
-                                    "Tasa Pactada": formato_excel(tasa_pactada),
-                                    "Tasa EA Facturada": formato_excel(tasa_ea),
-                                    "Cargos y Abonos": formato_excel(cargo),
-                                    "Saldo a Diferir": formato_excel(saldo),
-                                    "Cuotas": cuotas,
-                                    "Página": page_num,
+                                    "Moneda": "",
+                                    "Tipo de Cambio": "",
+                                    "Número de Autorización": "Sin transacciones",
+                                    "Fecha de Transacción": "",
+                                    "Descripción": "",
+                                    "Valor Original": "",
+                                    "Tasa Pactada": "",
+                                    "Tasa EA Facturada": "",
+                                    "Cargos y Abonos": "",
+                                    "Saldo a Diferir": "",
+                                    "Cuotas": "",
+                                    "Página": "",
                                 })
-                                tiene_transacciones_mc = True
-                        
-                        if not tiene_transacciones_mc and (nombre or ultimos_digitos): # Only add if we found a cardholder/card
-                            all_resultados.append({
-                                "Archivo": archivo,
-                                "Tipo de Tarjeta": "Mastercard", # New column
-                                "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
-                                "Número de Tarjeta": ultimos_digitos,
-                                "Moneda": "",
-                                "Tipo de Cambio": "",
-                                "Número de Autorización": "Sin transacciones",
-                                "Fecha de Transacción": "",
-                                "Descripción": "",
-                                "Valor Original": "",
-                                "Tasa Pactada": "",
-                                "Tasa EA Facturada": "",
-                                "Cargos y Abonos": "",
-                                "Saldo a Diferir": "",
-                                "Cuotas": "",
-                                "Página": "",
-                            })
 
-                except Exception as e:
-                    print(f"⚠️ Error procesando MC '{archivo}': {e}")
-            
-            elif card_type_is_visa:
-                print(f"📄 Procesando Visa: {archivo}")
-                try:
-                    with pdfplumber.open(ruta_pdf, password=pdf_password) as pdf:
-                        tarjetahabiente_visa = ""
-                        tarjeta_visa = ""
-                        tiene_transacciones_visa = False
-                        last_page_number_visa = 1
+                    except Exception as e:
+                        print(f"⚠️ Error procesando MC '{archivo}': {e}")
+                
+                elif card_type_is_visa:
+                    print(f"📄 Procesando Visa: {archivo}")
+                    try:
+                        with pdfplumber.open(ruta_pdf, password=pdf_password) as pdf:
+                            tarjetahabiente_visa = ""
+                            tarjeta_visa = ""
+                            tiene_transacciones_visa = False
+                            last_page_number_visa = 1
 
-                        for page_number, page in enumerate(pdf.pages, start=1):
-                            text = page.extract_text()
-                            if not text:
-                                continue
+                            for page_number, page in enumerate(pdf.pages, start=1):
+                                text = page.extract_text()
+                                if not text:
+                                    continue
 
-                            last_page_number_visa = page_number
-                            lines = text.split("\n")
+                                last_page_number_visa = page_number
+                                lines = text.split("\n")
 
-                            for idx, line in enumerate(lines):
-                                line = line.strip()
+                                for idx, line in enumerate(lines):
+                                    line = line.strip()
 
-                                tarjeta_match_visa = visa_pattern_tarjeta.search(line)
-                                if tarjeta_match_visa:
-                                    # Before updating card, if the previous card had no transactions, add a row
-                                    if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
+                                    tarjeta_match_visa = visa_pattern_tarjeta.search(line)
+                                    if tarjeta_match_visa:
+                                        # Before updating card, if the previous card had no transactions, add a row
+                                        if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
+                                            all_resultados.append({
+                                                "Archivo": archivo,
+                                                "Tipo de Tarjeta": "Visa", # New column
+                                                "Tarjetahabiente": tarjetahabiente_visa,
+                                                "Número de Tarjeta": tarjeta_visa,
+                                                "Moneda": "",
+                                                "Tipo de Cambio": "",
+                                                "Número de Autorización": "Sin transacciones",
+                                                "Fecha de Transacción": "",
+                                                "Descripción": "",
+                                                "Valor Original": "",
+                                                "Tasa Pactada": "",
+                                                "Tasa EA Facturada": "",
+                                                "Cargos y Abonos": "",
+                                                "Saldo a Diferir": "",
+                                                "Cuotas": "",
+                                                "Página": last_page_number_visa,
+                                            })
+                                        
+                                        tarjeta_visa = tarjeta_match_visa.group(1)
+                                        tiene_transacciones_visa = False # Reset for new card
+
+                                        if idx > 0:
+                                            posible_nombre = lines[idx - 1].strip()
+                                            posible_nombre = (
+                                                posible_nombre
+                                                .replace("SEÑOR (A):", "")
+                                                .replace("Señor (A):", "")
+                                                .replace("SEÑOR:", "")
+                                                .replace("Señor:", "")
+                                                .strip()
+                                                #.title() # Not converting here, will convert df column later
+                                            )
+                                            if len(posible_nombre.split()) >= 2:
+                                                tarjetahabiente_visa = posible_nombre
+                                        continue
+
+                                    match_visa = visa_pattern_transaccion.search(' '.join(line.split()))
+                                    if match_visa and tarjetahabiente_visa and tarjeta_visa:
+                                        autorizacion, fecha_str, descripcion, valor_original, tasa_pactada, tasa_ea, cargo, saldo, cuotas = match_visa.groups()
+
+                                        # Visa specific numeric formatting
+                                        valor_original_formatted = valor_original.replace(".", "").replace(",", ".")
+                                        cargo_formatted = cargo.replace(".", "").replace(",", ".")
+                                        saldo_formatted = saldo.replace(".", "").replace(",", ".")
+
                                         all_resultados.append({
                                             "Archivo": archivo,
                                             "Tipo de Tarjeta": "Visa", # New column
-                                            "Tarjetahabiente": tarjetahabiente_visa,
+                                            "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
                                             "Número de Tarjeta": tarjeta_visa,
-                                            "Moneda": "",
-                                            "Tipo de Cambio": "",
-                                            "Número de Autorización": "Sin transacciones",
-                                            "Fecha de Transacción": "",
-                                            "Descripción": "",
-                                            "Valor Original": "",
-                                            "Tasa Pactada": "",
-                                            "Tasa EA Facturada": "",
-                                            "Cargos y Abonos": "",
-                                            "Saldo a Diferir": "",
-                                            "Cuotas": "",
-                                            "Página": last_page_number_visa,
+                                            "Moneda": "COP", # Assuming Visa are in COP as no currency explicit extraction
+                                            "Tipo de Cambio": "", # Not applicable for COP
+                                            "Número de Autorización": autorizacion,
+                                            "Fecha de Transacción": pd.to_datetime(fecha_str, dayfirst=True).date() if fecha_str else None,
+                                            "Descripción": descripcion.strip(), # Ensure description is stripped for matching
+                                            "Valor Original": formato_excel(valor_original_formatted),
+                                            "Tasa Pactada": formato_excel(tasa_pactada),
+                                            "Tasa EA Facturada": formato_excel(tasa_ea),
+                                            "Cargos y Abonos": formato_excel(cargo_formatted),
+                                            "Saldo a Diferir": formato_excel(saldo_formatted),
+                                            "Cuotas": cuotas,
+                                            "Página": page_number,
                                         })
-                                    
-                                    tarjeta_visa = tarjeta_match_visa.group(1)
-                                    tiene_transacciones_visa = False # Reset for new card
+                                        tiene_transacciones_visa = True
+                            
+                            # After processing all pages for a Visa PDF, check if no transactions were found for the last card processed
+                            if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
+                                all_resultados.append({
+                                    "Archivo": archivo,
+                                    "Tipo de Tarjeta": "Visa", # New column
+                                    "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
+                                    "Número de Tarjeta": tarjeta_visa,
+                                    "Moneda": "",
+                                    "Tipo de Cambio": "",
+                                    "Número de Autorización": "Sin transacciones",
+                                    "Fecha de Transacción": "",
+                                    "Descripción": "",
+                                    "Valor Original": "",
+                                    "Tasa Pactada": "",
+                                    "Tasa EA Facturada": "",
+                                    "Cargos y Abonos": "",
+                                    "Saldo a Diferir": "",
+                                    "Cuotas": "",
+                                    "Página": last_page_number_visa,
+                                })
 
-                                    if idx > 0:
-                                        posible_nombre = lines[idx - 1].strip()
-                                        posible_nombre = (
-                                            posible_nombre
-                                            .replace("SEÑOR (A):", "")
-                                            .replace("Señor (A):", "")
-                                            .replace("SEÑOR:", "")
-                                            .replace("Señor:", "")
-                                            .strip()
-                                            #.title() # Not converting here, will convert df column later
-                                        )
-                                        if len(posible_nombre.split()) >= 2:
-                                            tarjetahabiente_visa = posible_nombre
-                                    continue
+                    except Exception as e:
+                        print(f"⚠️ Error al procesar Visa '{archivo}': {e}")
+                else:
+                    print(f"⏩ Archivo '{archivo}' no reconocido como Mastercard o Visa. Saltando.")
 
-                                match_visa = visa_pattern_transaccion.search(' '.join(line.split()))
-                                if match_visa and tarjetahabiente_visa and tarjeta_visa:
-                                    autorizacion, fecha_str, descripcion, valor_original, tasa_pactada, tasa_ea, cargo, saldo, cuotas = match_visa.groups()
-
-                                    # Visa specific numeric formatting
-                                    valor_original_formatted = valor_original.replace(".", "").replace(",", ".")
-                                    cargo_formatted = cargo.replace(".", "").replace(",", ".")
-                                    saldo_formatted = saldo.replace(".", "").replace(",", ".")
-
-                                    all_resultados.append({
-                                        "Archivo": archivo,
-                                        "Tipo de Tarjeta": "Visa", # New column
-                                        "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
-                                        "Número de Tarjeta": tarjeta_visa,
-                                        "Moneda": "COP", # Assuming Visa are in COP as no currency explicit extraction
-                                        "Tipo de Cambio": "", # Not applicable for COP
-                                        "Número de Autorización": autorizacion,
-                                        "Fecha de Transacción": pd.to_datetime(fecha_str, dayfirst=True).date() if fecha_str else None,
-                                        "Descripción": descripcion.strip(), # Ensure description is stripped for matching
-                                        "Valor Original": formato_excel(valor_original_formatted),
-                                        "Tasa Pactada": formato_excel(tasa_pactada),
-                                        "Tasa EA Facturada": formato_excel(tasa_ea),
-                                        "Cargos y Abonos": formato_excel(cargo_formatted),
-                                        "Saldo a Diferir": formato_excel(saldo_formatted),
-                                        "Cuotas": cuotas,
-                                        "Página": page_number,
-                                    })
-                                    tiene_transacciones_visa = True
-                        
-                        # After processing all pages for a Visa PDF, check if no transactions were found for the last card processed
-                        if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
-                            all_resultados.append({
-                                "Archivo": archivo,
-                                "Tipo de Tarjeta": "Visa", # New column
-                                "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
-                                "Número de Tarjeta": tarjeta_visa,
-                                "Moneda": "",
-                                "Tipo de Cambio": "",
-                                "Número de Autorización": "Sin transacciones",
-                                "Fecha de Transacción": "",
-                                "Descripción": "",
-                                "Valor Original": "",
-                                "Tasa Pactada": "",
-                                "Tasa EA Facturada": "",
-                                "Cargos y Abonos": "",
-                                "Saldo a Diferir": "",
-                                "Cuotas": "",
-                                "Página": last_page_number_visa,
-                            })
-
-                except Exception as e:
-                    print(f"⚠️ Error al procesar Visa '{archivo}': {e}")
-            else:
-                print(f"⏩ Archivo '{archivo}' no reconocido como Mastercard o Visa. Saltando.")
-
-else:
-    print(f"⏩ Carpeta de origen '{input_base_folder}' no encontrada. No hay archivos para procesar.")
-
-
-# --- Save All Results to a Single Excel File ---
-if all_resultados:
-    df_resultado_final = pd.DataFrame(all_resultados)
-    
-    # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
-    df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
-
-    # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
-    df_resultado_final['Fecha de Transacción'] = pd.to_datetime(df_resultado_final['Fecha de Transacción'], errors='coerce')
-    
-    # Add the 'Día' column
-    # Ensure it handles NaT values gracefully, perhaps by filling with empty string
-    df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') # Use 'es_ES' for Spanish day names
-    
-    # Add the new 'Cant. de Tarjetas' column
-    # This groups by 'Tarjetahabiente' and counts the number of unique 'Número de Tarjeta' for each person.
-    # The transform() function ensures the result is a Series with the same index as the original DataFrame,
-    # so it can be directly assigned as a new column.
-    df_resultado_final['Cant. de Tarjetas'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
-
-    # Merge with categorias_df if loaded
-    if categorias_loaded:
-        print("Merging all results with categorias.xlsx...")
-        df_resultado_final = pd.merge(df_resultado_final, categorias_df[['Descripción', 'Categoría', 'Subcategoría', 'Zona']],
-                                   on='Descripción', how='left')
     else:
-        # Add empty columns if categorias.xlsx was not loaded
-        df_resultado_final['Categoría'] = ''
-        df_resultado_final['Subcategoría'] = ''
-        df_resultado_final['Zona'] = ''
+        print(f"⏩ Carpeta de origen '{input_base_folder}' no encontrada. No hay archivos para procesar.")
 
-    # Merge with cedulas_df if loaded
-    if cedulas_loaded:
-        print("Merging all results with cedulas.xlsx...")
-        df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['Tarjetahabiente', 'Cédula', 'Tipo', 'Cargo']],
-                                   on='Tarjetahabiente', how='left')
+
+    # --- Save All Results to a Single Excel File ---
+    if all_resultados:
+        df_resultado_final = pd.DataFrame(all_resultados)
+        
+        # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
+        df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
+
+        # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
+        df_resultado_final['Fecha de Transacción'] = pd.to_datetime(df_resultado_final['Fecha de Transacción'], errors='coerce')
+        
+        # Add the 'Día' column
+        # Ensure it handles NaT values gracefully, perhaps by filling with empty string
+        df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') # Use 'es_ES' for Spanish day names
+        
+        # Add the new 'Cant. de Tarjetas' column
+        # This groups by 'Tarjetahabiente' and counts the number of unique 'Número de Tarjeta' for each person.
+        # The transform() function ensures the result is a Series with the same index as the original DataFrame,
+        # so it can be directly assigned as a new column.
+        df_resultado_final['Cant. de Tarjetas'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
+
+        # Merge with categorias_df if loaded
+        if categorias_loaded:
+            print("Merging all results with categorias.xlsx...")
+            df_resultado_final = pd.merge(df_resultado_final, categorias_df[['Descripción', 'Categoría', 'Subcategoría', 'Zona']],
+                                    on='Descripción', how='left')
+        else:
+            # Add empty columns if categorias.xlsx was not loaded
+            df_resultado_final['Categoría'] = ''
+            df_resultado_final['Subcategoría'] = ''
+            df_resultado_final['Zona'] = ''
+
+        # Merge with cedulas_df if loaded
+        if cedulas_loaded:
+            print("Merging all results with cedulas.xlsx...")
+            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['Tarjetahabiente', 'Cédula', 'Tipo', 'Cargo']],
+                                    on='Tarjetahabiente', how='left')
+        else:
+            # Add empty columns if cedulas.xlsx was not loaded
+            df_resultado_final['Cédula'] = ''
+            df_resultado_final['Tipo'] = ''
+            df_resultado_final['Cargo'] = ''
+
+        # Define the desired column order, placing 'Día' after 'Fecha de Transacción' and 'Cant. de Tarjetas' after 'Número de Tarjeta'
+        
+        # Get the base columns that are always present or added by extraction
+        base_columns = [
+            "Archivo",
+            "Tipo de Tarjeta",
+            "Tarjetahabiente",
+            "Número de Tarjeta",
+            "Cant. de Tarjetas", # The new column
+            "Moneda",
+            "Tipo de Cambio",
+            "Número de Autorización",
+            "Fecha de Transacción",
+            "Día",
+            "Descripción",
+            "Valor Original",
+            "Tasa Pactada",
+            "Tasa EA Facturada",
+            "Cargos y Abonos",
+            "Saldo a Diferir",
+            "Cuotas",
+            "Página"
+        ]
+
+        # Add columns from merges if they exist in the final DataFrame
+        if 'Categoría' in df_resultado_final.columns:
+            base_columns.extend(['Categoría', 'Subcategoría', 'Zona'])
+        if 'Cédula' in df_resultado_final.columns:
+            base_columns.extend(['Cédula', 'Tipo', 'Cargo'])
+
+        # Filter to only include columns that actually exist in the DataFrame to avoid errors
+        final_columns_order = [col for col in base_columns if col in df_resultado_final.columns]
+        df_resultado_final = df_resultado_final[final_columns_order]
+
+
+        # Change the filename to a static name instead of a timestamp
+        archivo_salida_unificado = "tcs.xlsx"
+        ruta_salida_unificado = os.path.join(output_base_folder, archivo_salida_unificado)
+        df_resultado_final.to_excel(ruta_salida_unificado, index=False)
+        print(f"\n✅ Archivo unificado de extractos generado correctamente en:\n{ruta_salida_unificado}")
+        print("\nPrimeras 5 filas del resultado unificado:")
+        print(df_resultado_final.head())
     else:
-        # Add empty columns if cedulas.xlsx was not loaded
-        df_resultado_final['Cédula'] = ''
-        df_resultado_final['Tipo'] = ''
-        df_resultado_final['Cargo'] = ''
+        print("\n⚠️ No se extrajo ningún dato de los archivos PDF (MC o VISA).")
 
-    # Define the desired column order, placing 'Día' after 'Fecha de Transacción' and 'Cant. de Tarjetas' after 'Número de Tarjeta'
-    
-    # Get the base columns that are always present or added by extraction
-    base_columns = [
-        "Archivo",
-        "Tipo de Tarjeta",
-        "Tarjetahabiente",
-        "Número de Tarjeta",
-        "Cant. de Tarjetas", # The new column
-        "Moneda",
-        "Tipo de Cambio",
-        "Número de Autorización",
-        "Fecha de Transacción",
-        "Día",
-        "Descripción",
-        "Valor Original",
-        "Tasa Pactada",
-        "Tasa EA Facturada",
-        "Cargos y Abonos",
-        "Saldo a Diferir",
-        "Cuotas",
-        "Página"
-    ]
-
-    # Add columns from merges if they exist in the final DataFrame
-    if 'Categoría' in df_resultado_final.columns:
-        base_columns.extend(['Categoría', 'Subcategoría', 'Zona'])
-    if 'Cédula' in df_resultado_final.columns:
-        base_columns.extend(['Cédula', 'Tipo', 'Cargo'])
-
-    # Filter to only include columns that actually exist in the DataFrame to avoid errors
-    final_columns_order = [col for col in base_columns if col in df_resultado_final.columns]
-    df_resultado_final = df_resultado_final[final_columns_order]
-
-
-    fecha_hora_salida = datetime.now().strftime("%Y%m%d_%H%M")
-    archivo_salida_unificado = f"TC_{fecha_hora_salida}.xlsx"
-    ruta_salida_unificado = os.path.join(output_base_folder, archivo_salida_unificado)
-    df_resultado_final.to_excel(ruta_salida_unificado, index=False)
-    print(f"\n✅ Archivo unificado de extractos generado correctamente en:\n{ruta_salida_unificado}")
-    print("\nPrimeras 5 filas del resultado unificado:")
-    print(df_resultado_final.head())
-else:
-    print("\n⚠️ No se extrajo ningún dato de los archivos PDF (MC o VISA).")
+# This ensures that the processing logic only runs when run_pdf_processing() is called explicitly
+# and not when the module is just imported.
+if __name__ == "__main__":
+    run_pdf_processing()
 "@
 
 # Update project urls.py with proper admin configuration
@@ -4546,7 +4591,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" action="">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
                     {% csrf_token %}
                     <div class="mb-3">
                         <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple accept=".pdf" required>
@@ -4559,16 +4604,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar TCs</button>
                 </form>
             </div>
-            {% for message in messages %}
-                {% if 'import_tcs' in message.tags %}
-                <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
             <div class="card-footer">
                 <div class="d-flex align-items-center">
                     <span class="badge bg-success">

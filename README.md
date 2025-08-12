@@ -55,7 +55,7 @@ arpa/                      # Django project root
 │   │   ├── admin/
 │   │   │   └── base_site.html
 │   │   ├── details.html
-│   │   ├── import_excel.html
+│   │   ├── import.html
 │   │   ├── master.html
 │   │   └── persons.html
 │   │
