@@ -50,6 +50,7 @@ class Person(models.Model):
     estado = models.CharField(max_length=50, default='Activo')
     compania = models.CharField(max_length=255, blank=True)
     cargo = models.CharField(max_length=255, blank=True)
+    area = models.CharField(max_length=255, blank=True)
     revisar = models.BooleanField(default=False)
     comments = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -697,15 +698,15 @@ def import_persons(request):
 
             # Define column mapping from Excel columns to model fields
             column_mapping = {
-                'id': 'id', # Assuming 'id' column might exist in the input, or we'll add it later
+                'id': 'id',
                 'nombre completo': 'nombre_completo',
-                # Map the input 'correo_normalizado' directly to a temporary name 'raw_correo'
                 'correo_normalizado': 'raw_correo',
                 'cedula': 'cedula',
                 'estado': 'estado',
                 'compania': 'compania',
                 'cargo': 'cargo',
-                'activo': 'activo', # Assuming 'activo' might be an input column for 'estado'
+                'activo': 'activo',
+                'division': 'area',
             }
 
             # Rename columns based on the mapping
@@ -730,13 +731,12 @@ def import_persons(request):
 
             # Process 'raw_correo' to create 'correo_to_use' for the database and output
             if 'raw_correo' in df.columns:
-                # Keep '@' symbol and periods, convert to lowercase
-                df['correo_to_use'] = df['raw_correo'].str.lower() # MODIFIED LINE
+                df['correo_to_use'] = df['raw_correo'].str.lower()
             else:
                 df['correo_to_use'] = '' # Initialize if no raw email is present
 
-            # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo'
-            output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo']
+            # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo' and 'AREA'
+            output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo', 'AREA']
             output_columns_df = pd.DataFrame(columns=output_columns)
 
             # Populate the output DataFrame with data from the processed DataFrame
@@ -752,8 +752,13 @@ def import_persons(request):
                 output_columns_df['Compania'] = df['compania']
             if 'cargo' in df.columns:
                 output_columns_df['CARGO'] = df['cargo']
-            if 'correo_to_use' in df.columns: # Use the newly created 'correo_to_use' column
+            if 'correo_to_use' in df.columns:
                 output_columns_df['correo'] = df['correo_to_use']
+            # Add 'AREA' to the output DataFrame
+            if 'area' in df.columns:
+                output_columns_df['AREA'] = df['area']
+            else:
+                output_columns_df['AREA'] = '' # Ensure column exists even if no data
 
             # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
@@ -767,10 +772,11 @@ def import_persons(request):
                     cedula=row['cedula'],
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo_to_use', ''), # Use 'correo_to_use' for the database
+                        'correo': row.get('correo_to_use', ''),
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
+                        'area': row.get('area', ''), # Add the 'area' field
                     }
                 )
 
@@ -980,6 +986,7 @@ def person_list(request):
     status_filter = request.GET.get('status', '')
     cargo_filter = request.GET.get('cargo', '')
     compania_filter = request.GET.get('compania', '')
+    area_filter = request.GET.get('area', '')
 
     order_by = request.GET.get('order_by', 'nombre_completo')
     sort_direction = request.GET.get('sort_direction', 'asc')
@@ -990,7 +997,9 @@ def person_list(request):
         persons = persons.filter(
             Q(nombre_completo__icontains=search_query) |
             Q(cedula__icontains=search_query) |
-            Q(correo__icontains=search_query))
+            Q(correo__icontains=search_query) |
+            Q(area__icontains=search_query) 
+        )
 
     if status_filter:
         persons = persons.filter(estado=status_filter)
@@ -1000,6 +1009,9 @@ def person_list(request):
 
     if compania_filter:
         persons = persons.filter(compania=compania_filter)
+
+    if area_filter: # New: Apply area filter
+        persons = persons.filter(area=area_filter)
 
     if sort_direction == 'desc':
         order_by = f'-{order_by}'
@@ -1011,6 +1023,7 @@ def person_list(request):
 
     cargos = Person.objects.exclude(cargo='').values_list('cargo', flat=True).distinct().order_by('cargo')
     companias = Person.objects.exclude(compania='').values_list('compania', flat=True).distinct().order_by('compania')
+    areas = Person.objects.exclude(area='').values_list('area', flat=True).distinct().order_by('area') 
 
     paginator = Paginator(persons, 25)
     page_number = request.GET.get('page')
@@ -1021,6 +1034,7 @@ def person_list(request):
         'page_obj': page_obj,
         'cargos': cargos,
         'companias': companias,
+        'areas': areas,
         'current_order': order_by.lstrip('-'),
         'current_direction': 'desc' if order_by.startswith('-') else 'asc',
         'all_params': {k: v for k, v in request.GET.items() if k not in ['page', 'order_by', 'sort_direction']},
@@ -1028,9 +1042,6 @@ def person_list(request):
     }
 
     return render(request, 'persons.html', context)
-
-
-# In your views.py file
 
 @login_required
 def export_persons_excel(request):
@@ -4766,6 +4777,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% endfor %}
                 </select>
             </div>
+
+            <!-- Area Filter - New -->
+            <div class="col-md-2">
+                <select name="area" class="form-select form-select-lg">
+                    <option value="">Area</option>
+                    {% for area in areas %}
+                        <option value="{{ area }}" {% if request.GET.area == area %}selected{% endif %}>{{ area }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             
             <!-- Compania Filter -->
             <div class="col-md-2">
@@ -4814,6 +4835,11 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             </a>
                         </th>
                         <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=area&sort_direction={% if current_order == 'area' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Area
+                            </a>
+                        </th>
+                        <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Correo
                             </a>
@@ -4846,6 +4872,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ person.cedula }}</td>
                             <td>{{ person.nombre_completo }}</td>
                             <td>{{ person.cargo }}</td>
+                            <td>{{ person.area }}</td>
                             <td>{{ person.correo }}</td>
                             <td>{{ person.compania }}</td>
                             <td>
