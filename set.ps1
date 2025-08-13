@@ -177,7 +177,7 @@ class ConflictForm(forms.ModelForm):
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
-    list_display = ('cedula', 'nombre_completo', 'cargo', 'compania', 'estado', 'revisar')
+    list_display = ('cedula', 'nombre_completo', 'cargo', 'area', 'compania', 'estado', 'revisar')
     search_fields = ('cedula', 'nombre_completo', 'correo')
     list_filter = ('estado', 'compania', 'revisar')
     list_editable = ('revisar',)
@@ -187,7 +187,7 @@ class PersonAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'revisar', 'comments')
+            'fields': ('cedula_with_actions', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'area', 'revisar', 'comments')
         }),
         ('Related Records', {
             'fields': ('conflicts_link', 'financial_reports_link'),
@@ -253,9 +253,9 @@ class PersonAdmin(admin.ModelAdmin):
 
                 return format_html(
                     '<div class="nowrap">'
-                    '<a href="{}" class="changelink">View/Edit Financial Reports</a> &nbsp;'
-                    '<a href="{}" class="addlink">Add New Financial Report</a> &nbsp;'
-                    '<a href="{}" class="viewlink">All Financial Reports</a>'
+                    '<a href="{}" class="changelink">View/Editar Declaracion B&R</a> &nbsp;'
+                    '<a href="{}" class="addlink">Agregar Nueva declaracion B&R</a> &nbsp;'
+                    '<a href="{}" class="viewlink">Todo en Bienes y Rentas</a>'
                     '</div>',
                     change_url,
                     add_url,
@@ -268,7 +268,7 @@ class PersonAdmin(admin.ModelAdmin):
                     add_url
                 )
         return "-"
-    financial_reports_link.short_description = 'Financial Reports'
+    financial_reports_link.short_description = 'Bienes y Rentas'
     financial_reports_link.allow_tags = True
 
     def get_fieldsets(self, request, obj=None):
@@ -677,26 +677,62 @@ def main(request):
 
 @login_required
 def import_persons(request):
-    """View for importing persons data from Excel files"""
+    """
+    View for importing persons data from an uploaded Excel file and adding new
+    records from 'cedulas.xlsx' based on the 'Cedula' column.
+    """
     if request.method == 'POST' and request.FILES.get('excel_file'):
         excel_file = request.FILES['excel_file']
+        temp_upload_path = None
+
         try:
-            # Define the path to save the uploaded file temporarily
+            # 1. Save the uploaded file temporarily
             temp_upload_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'uploaded_persons_temp.xlsx')
             with open(temp_upload_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            # Read the Excel file into a pandas DataFrame
-            df = pd.read_excel(temp_upload_path)
+            # 2. Read the uploaded Excel file into a pandas DataFrame
+            df_uploaded = pd.read_excel(temp_upload_path)
+            
+            # 3. Clean column names for the uploaded DataFrame
+            df_uploaded.columns = df_uploaded.columns.str.strip().str.lower()
 
-            # Remove the temporary uploaded file
-            os.remove(temp_upload_path)
+            # 4. Validate and convert 'cedula' column to string type
+            if 'cedula' not in df_uploaded.columns:
+                messages.error(request, "Error: 'cedula' column not found in the uploaded Excel file. ❌")
+                return HttpResponseRedirect('/import/')
+            df_uploaded['cedula'] = df_uploaded['cedula'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
 
-            # Strip whitespace and convert column names to lowercase for consistent mapping
-            df.columns = df.columns.str.strip().str.lower()
+            # 5. Read the `cedulas.xlsx` file and prepare it for merging
+            cedulas_file_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'cedulas.xlsx')
+            df_new_rows = pd.DataFrame()
 
-            # Define column mapping from Excel columns to model fields
+            if os.path.exists(cedulas_file_path):
+                df_cedulas = pd.read_excel(cedulas_file_path)
+                df_cedulas.columns = df_cedulas.columns.str.strip().str.lower()
+                
+                if 'cedula' in df_cedulas.columns:
+                    # Convert 'cedula' to string and clean up.
+                    df_cedulas['cedula'] = df_cedulas['cedula'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
+                    
+                    # 6. Filter 'cedulas.xlsx' to get only new rows
+                    # This is the core logic change: we select rows from `df_cedulas`
+                    # where the 'cedula' value is NOT in the `df_uploaded` 'cedula' column.
+                    new_cedulas = df_cedulas[~df_cedulas['cedula'].isin(df_uploaded['cedula'])]
+                    df_new_rows = new_cedulas
+                    
+                    messages.info(request, f"Found {len(df_new_rows)} new records from 'cedulas.xlsx' to add. ➕")
+                else:
+                    messages.warning(request, "Warning: 'cedula' column not found in 'cedulas.xlsx'. No new rows will be added from this file. ⚠️")
+            else:
+                messages.warning(request, "Warning: 'cedulas.xlsx' not found at 'src/' path. Only the uploaded file will be processed. ⚠️")
+
+            # 7. Concatenate the uploaded DataFrame with the new rows DataFrame
+            # This combines the two sets of data without modifying existing rows.
+            df = pd.concat([df_uploaded, df_new_rows], ignore_index=True, sort=False)
+            
+            # 8. Apply the original column mapping to the combined DataFrame
             column_mapping = {
                 'id': 'id',
                 'nombre completo': 'nombre_completo',
@@ -708,66 +744,47 @@ def import_persons(request):
                 'activo': 'activo',
                 'division': 'area',
             }
-
-            # Rename columns based on the mapping
-            df = df.rename(columns=column_mapping)
-
-            # Ensure 'estado' column exists, if 'activo' is present, use it to determine 'estado'
+            existing_columns_to_rename = {k: v for k, v in column_mapping.items() if k in df.columns}
+            df = df.rename(columns=existing_columns_to_rename)
+            
+            # 9. Process the combined data
             if 'activo' in df.columns and 'estado' not in df.columns:
-                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
+                df['estado'] = df['activo'].apply(lambda x: 'Activo' if pd.notna(x) and x else 'Retirado')
             elif 'estado' not in df.columns:
-                df['estado'] = 'Activo' # Default to 'Activo' if neither 'estado' nor 'activo' is present
+                df['estado'] = 'Activo'
 
-            # Convert 'cedula' to string type to prevent issues with mixed types
-            if 'cedula' in df.columns:
-                df['cedula'] = df['cedula'].astype(str)
-            else:
-                messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
-                return HttpResponseRedirect('/import/')
-
-            # Convert nombre_completo to title case if it exists
             if 'nombre_completo' in df.columns:
-                df['nombre_completo'] = df['nombre_completo'].str.title()
-
-            # Process 'raw_correo' to create 'correo_to_use' for the database and output
+                df['nombre_completo'] = df['nombre_completo'].fillna('').astype(str).str.title()
+            
             if 'raw_correo' in df.columns:
-                df['correo_to_use'] = df['raw_correo'].str.lower()
+                df['correo_to_use'] = df['raw_correo'].fillna('').astype(str).str.lower()
             else:
-                df['correo_to_use'] = '' # Initialize if no raw email is present
+                df['correo_to_use'] = ''
 
-            # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo' and 'AREA'
-            output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo', 'AREA']
-            output_columns_df = pd.DataFrame(columns=output_columns)
+            # 10. Prepare and save the output Excel file ('Personas.xlsx')
+            output_columns_headers = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo', 'AREA']
+            output_columns_df = pd.DataFrame(columns=output_columns_headers)
 
-            # Populate the output DataFrame with data from the processed DataFrame
-            if 'id' in df.columns:
-                output_columns_df['Id'] = df['id']
-            if 'nombre_completo' in df.columns:
-                output_columns_df['NOMBRE COMPLETO'] = df['nombre_completo']
-            if 'cedula' in df.columns:
-                output_columns_df['Cedula'] = df['cedula']
-            if 'estado' in df.columns:
-                output_columns_df['Estado'] = df['estado']
-            if 'compania' in df.columns:
-                output_columns_df['Compania'] = df['compania']
-            if 'cargo' in df.columns:
-                output_columns_df['CARGO'] = df['cargo']
-            if 'correo_to_use' in df.columns:
-                output_columns_df['correo'] = df['correo_to_use']
-            # Add 'AREA' to the output DataFrame
-            if 'area' in df.columns:
-                output_columns_df['AREA'] = df['area']
-            else:
-                output_columns_df['AREA'] = '' # Ensure column exists even if no data
+            output_columns_df['Id'] = df.get('id', pd.Series(dtype='object'))
+            output_columns_df['NOMBRE COMPLETO'] = df.get('nombre_completo', pd.Series(dtype='object'))
+            output_columns_df['Cedula'] = df.get('cedula', pd.Series(dtype='object'))
+            output_columns_df['Estado'] = df.get('estado', pd.Series(dtype='object'))
+            output_columns_df['Compania'] = df.get('compania', pd.Series(dtype='object'))
+            output_columns_df['CARGO'] = df.get('cargo', pd.Series(dtype='object'))
+            output_columns_df['correo'] = df.get('correo_to_use', pd.Series(dtype='object'))
+            output_columns_df['AREA'] = df.get('area', pd.Series(dtype='object'))
 
-            # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
-
-            # Save the filtered and formatted DataFrame to a new Excel file
             output_columns_df.to_excel(output_excel_path, index=False)
+            messages.info(request, f"Generated 'Personas.xlsx' with {len(output_columns_df)} records. 📊")
 
-            # Iterate over the DataFrame and update/create Person objects in the database
-            for _, row in df.iterrows():
+            # 11. Iterate over the combined DataFrame and update/create Person objects
+            processed_count = 0
+            for index, row in df.iterrows():
+                if pd.isna(row.get('cedula')) or str(row.get('cedula')).strip() == '':
+                    messages.warning(request, f"Skipping row {index+1} due to missing or empty 'Cedula'. ⚠️")
+                    continue
+
                 Person.objects.update_or_create(
                     cedula=row['cedula'],
                     defaults={
@@ -776,13 +793,18 @@ def import_persons(request):
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
-                        'area': row.get('area', ''), # Add the 'area' field
+                        'area': row.get('area', ''),
                     }
                 )
+                processed_count += 1
 
-            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados y Personas.xlsx generado.')
+            messages.success(request, f'Excel files imported and new rows added! {processed_count} records processed. ✅')
+
         except Exception as e:
-            messages.error(request, f'Error procesando archivo de personas: {str(e)}')
+            messages.error(request, f'An unexpected error occurred: {str(e)} 🐞')
+        finally:
+            if temp_upload_path and os.path.exists(temp_upload_path):
+                os.remove(temp_upload_path)
 
         return HttpResponseRedirect('/import/')
 
@@ -1477,13 +1499,13 @@ def person_details(request, cedula):
     try:
         person = Person.objects.get(cedula=cedula)
         conflicts = Conflict.objects.filter(person=person)
-        financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') # Fetch financial reports
+        financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') 
 
         context = {
             'myperson': person,
             'conflicts': conflicts,
-            'financial_reports': financial_reports, # Pass financial reports to context
-            'alerts_count': Person.objects.filter(revisar=True).count(), # Add alerts count
+            'financial_reports': financial_reports, 
+            'alerts_count': Person.objects.filter(revisar=True).count(), 
         }
 
         return render(request, 'details.html', context)
@@ -3035,54 +3057,67 @@ print(f"File without trend symbols has been saved as {output_path_idtrends}")
 Set-Content -Path "core/tcs.py" -Value @"
 import os
 import re
-import fitz  
-import pdfplumber  
+import fitz
+import pdfplumber
 import pandas as pd
 from datetime import datetime
 
 # --- Configuration (can be modified by views.py) ---
-input_base_folder = "core/src/extractos" 
-output_base_folder = "core/src" 
-trm_file = os.path.join("core/src", "TRM.xlsx")
-trm_sheet = "Datos"
+input_base_folder = "core/src/extractos"
+output_base_folder = "core/src"
 categorias_file = os.path.join("core/src", "categorias.xlsx")
-cedulas_file = os.path.join("core/src", "cedulas.xlsx") 
-pdf_password = "" 
+cedulas_file = os.path.join("core/src", "cedulas.xlsx")
+pdf_password = ""
 
 # Global variables for input/output folders and password, to be set by the caller (views.py)
-input_base_folder = "core/src/extractos" 
-output_base_folder = "core/src" 
+input_base_folder = "core/src/extractos"
+output_base_folder = "core/src"
 
 # Create output base folder if it doesn't exist
 os.makedirs(output_base_folder, exist_ok=True)
 os.makedirs(input_base_folder, exist_ok=True)
 
-# --- TRM Data Loading ---
-trm_df = pd.DataFrame() 
+# --- TRM Data (Hardcoded - Pre-calculated Monthly Averages) ---
+trm_data = {
+    "2024/01/01": 3907.86, "2024/02/01": 3932.79, "2024/03/01": 3902.16,
+    "2024/04/01": 3871.93, "2024/05/01": 3866.50, "2024/06/01": 4030.73,
+    "2024/07/01": 4040.82, "2024/08/01": 4068.79, "2024/09/01": 4188.08,
+    "2024/10/01": 4242.02, "2024/11/01": 4398.81, "2024/12/01": 4381.16,
+    "2025/01/01": 4296.84, "2025/02/01": 4125.79, "2025/03/01": 4136.21,
+    "2025/04/01": 4272.93, "2025/05/01": 4216.79, "2025/06/01": 4110.15,
+    "2025/07/01": 4037.03
+}
+
+trm_df = pd.DataFrame()
 trm_loaded = False
 
-# Function to load TRM data
+# Function to load TRM data from the hardcoded dictionary (monthly averages)
 def load_trm_data():
     global trm_df, trm_loaded
-    if os.path.exists(trm_file):
-        try:
-            trm_df = pd.read_excel(trm_file, sheet_name=trm_sheet)
-            trm_df.columns = trm_df.columns.str.strip()
-            trm_df["Fecha"] = pd.to_datetime(trm_df["Fecha"], errors='coerce')
-            trm_df["TRM"] = trm_df["Tasa Representativa del Mercado (TRM)"].astype(str).str.replace(",", "").astype(float)
-            trm_df = trm_df[["Fecha", "TRM"]]
-            trm_loaded = True
-            print(f"✅ TRM file '{trm_file}' loaded successfully.")
-        except Exception as e:
-            print(f"⚠️ Error loading TRM file '{trm_file}': {e}. MC currency conversion will not be available.")
-    else:
-        print(f"⚠️ TRM file '{trm_file}' not found. MC currency conversion will not be available.")
+    try:
+        # Convert dictionary to DataFrame
+        trm_df = pd.DataFrame(list(trm_data.items()), columns=["Fecha", "TRM"])
+        # Convert 'Fecha' column to datetime objects (specifically to the first day of the month)
+        trm_df["Fecha"] = pd.to_datetime(trm_df["Fecha"], errors='coerce').dt.date
+        trm_loaded = True
+        print(f"✅ TRM data loaded successfully from hardcoded monthly average dictionary.")
+    except Exception as e:
+        print(f"⚠️ Error loading TRM data from dictionary: {e}. MC currency conversion will not be available.")
+
 
 def obtener_trm(fecha):
+    # Ensure fecha is a date object for comparison
+    if isinstance(fecha, pd.Timestamp):
+        fecha = fecha.date()
+
     if trm_loaded and pd.isna(fecha):
         return ""
     if trm_loaded:
-        fila = trm_df[trm_df["Fecha"] == fecha]
+        # Create a "YYYY/MM/01" string for the given date's month
+        lookup_month_start = datetime(fecha.year, fecha.month, 1).date()
+
+        # Find the row in trm_df that matches the start of the month
+        fila = trm_df[trm_df["Fecha"] == lookup_month_start]
         if not fila.empty:
             return fila["TRM"].values[0]
     return ""
@@ -3159,7 +3194,7 @@ def run_pdf_processing():
     """
     all_resultados = [] # Combined list for all results
 
-    load_trm_data()
+    load_trm_data() # This now loads from the hardcoded dictionary (monthly averages)
     load_categorias_data()
     load_cedulas_data()
 
@@ -3167,11 +3202,11 @@ def run_pdf_processing():
         for archivo in sorted(os.listdir(input_base_folder)):
             if archivo.endswith(".pdf"):
                 ruta_pdf = os.path.join(input_base_folder, archivo)
-                
+
                 # Use file name to determine card type
                 card_type_is_mc = "MC" in archivo.upper() or "MASTERCARD" in archivo.upper()
                 card_type_is_visa = "VISA" in archivo.upper()
-                
+
                 if card_type_is_mc:
                     print(f"📄 Procesando Mastercard: {archivo}")
                     try:
@@ -3212,8 +3247,9 @@ def run_pdf_processing():
                                     except:
                                         fecha_transaccion = None
 
-                                    tipo_cambio = obtener_trm(pd.to_datetime(fecha_transaccion)) if moneda_actual == "USD" else ""
-                                    
+                                    # Pass the date object directly to obtener_trm
+                                    tipo_cambio = obtener_trm(fecha_transaccion) if moneda_actual == "USD" else ""
+
                                     all_resultados.append({
                                         "Archivo": archivo,
                                         "Tipo de Tarjeta": "Mastercard", # New column
@@ -3233,7 +3269,7 @@ def run_pdf_processing():
                                         "Página": page_num,
                                     })
                                     tiene_transacciones_mc = True
-                            
+
                             if not tiene_transacciones_mc and (nombre or ultimos_digitos): # Only add if we found a cardholder/card
                                 all_resultados.append({
                                     "Archivo": archivo,
@@ -3256,7 +3292,7 @@ def run_pdf_processing():
 
                     except Exception as e:
                         print(f"⚠️ Error procesando MC '{archivo}': {e}")
-                
+
                 elif card_type_is_visa:
                     print(f"📄 Procesando Visa: {archivo}")
                     try:
@@ -3299,7 +3335,7 @@ def run_pdf_processing():
                                                 "Cuotas": "",
                                                 "Página": last_page_number_visa,
                                             })
-                                        
+
                                         tarjeta_visa = tarjeta_match_visa.group(1)
                                         tiene_transacciones_visa = False # Reset for new card
 
@@ -3346,7 +3382,7 @@ def run_pdf_processing():
                                             "Página": page_number,
                                         })
                                         tiene_transacciones_visa = True
-                            
+
                             # After processing all pages for a Visa PDF, check if no transactions were found for the last card processed
                             if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
                                 all_resultados.append({
@@ -3380,21 +3416,17 @@ def run_pdf_processing():
     # --- Save All Results to a Single Excel File ---
     if all_resultados:
         df_resultado_final = pd.DataFrame(all_resultados)
-        
+
         # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
         df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
 
         # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
         df_resultado_final['Fecha de Transacción'] = pd.to_datetime(df_resultado_final['Fecha de Transacción'], errors='coerce')
-        
+
         # Add the 'Día' column
-        # Ensure it handles NaT values gracefully, perhaps by filling with empty string
         df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') # Use 'es_ES' for Spanish day names
-        
+
         # Add the new 'Cant. de Tarjetas' column
-        # This groups by 'Tarjetahabiente' and counts the number of unique 'Número de Tarjeta' for each person.
-        # The transform() function ensures the result is a Series with the same index as the original DataFrame,
-        # so it can be directly assigned as a new column.
         df_resultado_final['Cant. de Tarjetas'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
 
         # Merge with categorias_df if loaded
@@ -3411,16 +3443,14 @@ def run_pdf_processing():
         # Merge with cedulas_df if loaded
         if cedulas_loaded:
             print("Merging all results with cedulas.xlsx...")
-            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['Tarjetahabiente', 'Cédula', 'Tipo', 'Cargo']],
+            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['Tarjetahabiente', 'Cedula', 'Tipo', 'Cargo']],
                                     on='Tarjetahabiente', how='left')
         else:
             # Add empty columns if cedulas.xlsx was not loaded
-            df_resultado_final['Cédula'] = ''
+            df_resultado_final['Cedula'] = ''
             df_resultado_final['Tipo'] = ''
             df_resultado_final['Cargo'] = ''
 
-        # Define the desired column order, placing 'Día' after 'Fecha de Transacción' and 'Cant. de Tarjetas' after 'Número de Tarjeta'
-        
         # Get the base columns that are always present or added by extraction
         base_columns = [
             "Archivo",
@@ -3446,8 +3476,8 @@ def run_pdf_processing():
         # Add columns from merges if they exist in the final DataFrame
         if 'Categoría' in df_resultado_final.columns:
             base_columns.extend(['Categoría', 'Subcategoría', 'Zona'])
-        if 'Cédula' in df_resultado_final.columns:
-            base_columns.extend(['Cédula', 'Tipo', 'Cargo'])
+        if 'Cedula' in df_resultado_final.columns:
+            base_columns.extend(['Cedula', 'Tipo', 'Cargo'])
 
         # Filter to only include columns that actually exist in the DataFrame to avoid errors
         final_columns_order = [col for col in base_columns if col in df_resultado_final.columns]
@@ -3465,7 +3495,6 @@ def run_pdf_processing():
         print("\n⚠️ No se extrajo ningún dato de los archivos PDF (MC o VISA).")
 
 # This ensures that the processing logic only runs when run_pdf_processing() is called explicitly
-# and not when the module is just imported.
 if __name__ == "__main__":
     run_pdf_processing()
 "@
@@ -4173,7 +4202,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         <!-- New Chart section for conflicts -->
         <div class="col-12 col-lg-6">
             <div class="card p-3 h-100">
-                <h5 class="card-title text-center">Declaracion de Conflictos Anual</h5>
+                <h5 class="card-title text-center">Declaraciones de Conflictos Anual</h5>
                 <canvas id="conflictsChart"></canvas>
             </div>
         </div>
@@ -5074,7 +5103,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_inicio&sort_direction={% if current_order == 'fecha_inicio' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Ano
+                                Ejercicio
                             </a>
                         </th>
                         <th>
@@ -5713,7 +5742,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <select name="column_X" class="form-select form-select-lg column-select">
                                 <option value="">Selecciona Columna</option>
                                 <option value="fk_id_periodo">Periodo ID</option>
-                                <option value="ano_declaracion">Ano Declaracion</option>
+                                <option value="ano_declaracion">Ejercicio Declaracion</option>
                                 <option value="activos">Activos</option>
                                 <option value="cant_bienes">Cantidad Bienes</option>
                                 <option value="cant_bancos">Cantidad Bancos</option>
@@ -5990,7 +6019,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 <i class="fas fa-thumbtack"></i>
                             </button>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=ano_declaracion&sort_direction={% if current_order == 'ano_declaracion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Ano
+                                Ejercicio
                             </a>
                         </th>
                         <th data-column-index="7">
@@ -6762,6 +6791,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <td>{{ myperson.cargo }}</td>
                     </tr>
                     <tr>
+                        <th>Area:</th>
+                        <td>{{ myperson.area }}</td>
+                    </tr>
+                    <tr>
                         <th>Correo:</th>
                         <td>{{ myperson.correo }}</td>
                     </tr>
@@ -6984,7 +7017,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <table class="table table-striped table-hover mb-0">
                         <thead class="table-fixed-header">
                             <tr>
-                                <th>Ano</th>
+                                <th>Ejercicio</th>
                                 <th scope="col">Variaciones</th>
                                 <th>Activos</th>
                                 <th>Pasivos</th>
