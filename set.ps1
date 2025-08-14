@@ -423,7 +423,7 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
-                   export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs)
+                   export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs, import_categorias)
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -473,6 +473,8 @@ urlpatterns = [
     path('toggle-revisar/<str:cedula>/', views.toggle_revisar_status, name='toggle_revisar_status'),
     path('person/<str:cedula>/save_comment/', views.save_comment, name='save_comment'),
     path('person/<str:cedula>/delete_comment/<int:comment_index>/', views.delete_comment, name='delete_comment'),
+    path('import/', ImportView.as_view(), name='import_page'), 
+    path('import-categorias/', views.import_categorias, name='import_categorias'),
 ]
 "@
 
@@ -580,10 +582,14 @@ class ImportView(LoginRequiredMixin, TemplateView):
         and to gather analysis results from the core/src directory.
         """
         context = super().get_context_data(**kwargs)
+        # These counts are fetched from models directly
         context['conflict_count'] = Conflict.objects.count()
         context['person_count'] = Person.objects.count()
         context['finances_count'] = FinancialReport.objects.count()
-        context['alerts_count'] = Person.objects.filter(revisar=True).count() 
+        context['alerts_count'] = Person.objects.filter(revisar=True).count()
+        # Assuming tc_count will also come from a model if you have one
+        # context['tc_count'] = CreditCardTransaction.objects.count()
+
 
         analysis_results = []
         core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
@@ -619,7 +625,16 @@ class ImportView(LoginRequiredMixin, TemplateView):
         tcs_status = get_file_status('tcs.xlsx')
         analysis_results.append(tcs_status)
         if tcs_status['status'] == 'success':
-            context['tcs_count'] = tcs_status['records']
+            context['tc_count'] = tcs_status['records'] # Update tcs_count in context
+
+        # --- New: Status for categorias.xlsx ---
+        categorias_status = get_file_status('categorias.xlsx')
+        analysis_results.append(categorias_status)
+        if categorias_status['status'] == 'success':
+            context['categorias_count'] = categorias_status['records'] # Pass this new count to the template
+        else:
+            context['categorias_count'] = 0 # Default to 0 if file not found or error
+
 
         # --- Status for Nets.py output files ---
         analysis_results.append(get_file_status('bankNets.xlsx'))
@@ -642,6 +657,76 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
         context['analysis_results'] = analysis_results
         return context
+
+
+# Function for handling categorias.xlsx upload
+def import_categorias(request):
+    if request.method == 'POST':
+        if 'categorias_excel_file' in request.FILES:
+            uploaded_file = request.FILES['categorias_excel_file']
+            file_name = "categorias.xlsx"
+
+            target_directory = os.path.join(settings.BASE_DIR, "core", "src")
+            os.makedirs(target_directory, exist_ok=True)
+
+            file_path = os.path.join(target_directory, file_name)
+
+            try:
+                with open(file_path, 'wb+') as destination:
+                    for chunk in uploaded_file.chunks():
+                        destination.write(chunk)
+
+                df = pd.read_excel(file_path)
+                messages.success(request, f'Archivo "{file_name}" importado correctamente. {len(df)} registros procesados.', extra_tags='import_categorias')
+            except Exception as e:
+                messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
+        else:
+            messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
+    return redirect('import_page') # Ensure 'import_page' is the name of your ImportView URL
+
+# --- Modify your existing import_tcs function ---
+def import_tcs(request):
+    if request.method == 'POST':
+        pdf_files = request.FILES.getlist('visa_pdf_files')
+        pdf_password = request.POST.get('visa_pdf_password', '')
+
+        if not pdf_files:
+            messages.error(request, 'No se seleccionaron archivos PDF.', extra_tags='import_tcs')
+            return redirect('import_page')
+
+        input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
+        output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+
+        os.makedirs(input_pdf_dir, exist_ok=True) # Ensure input directory exists
+
+        # Clear existing PDFs in the input_pdf_dir before saving new ones
+        for filename in os.listdir(input_pdf_dir):
+            if filename.endswith(".pdf"):
+                os.remove(os.path.join(input_pdf_dir, filename))
+
+        files_saved = 0
+        for pdf_file in pdf_files:
+            file_path = os.path.join(input_pdf_dir, pdf_file.name)
+            try:
+                with open(file_path, 'wb+') as destination:
+                    for chunk in pdf_file.chunks():
+                        destination.write(chunk)
+                files_saved += 1
+            except Exception as e:
+                messages.error(request, f"Error saving PDF '{pdf_file.name}': {e}", extra_tags='import_tcs')
+
+        if files_saved > 0:
+            try:
+                # Call the tcs.run_pdf_processing with necessary arguments
+                tcs.pdf_password = pdf_password # Set the password in tcs module
+                tcs.run_pdf_processing(settings.BASE_DIR, input_pdf_dir, output_excel_dir)
+                messages.success(request, f'Se procesaron {files_saved} archivos PDF de extractos.', extra_tags='import_tcs')
+            except Exception as e:
+                messages.error(request, f'Error durante el procesamiento de los PDFs de extractos: {e}', extra_tags='import_tcs')
+        else:
+            messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
+
+    return redirect('import_page') # Redirect back to the import page
 
 @login_required
 def main(request):
@@ -677,62 +762,26 @@ def main(request):
 
 @login_required
 def import_persons(request):
-    """
-    View for importing persons data from an uploaded Excel file and adding new
-    records from 'cedulas.xlsx' based on the 'Cedula' column.
-    """
+    """View for importing persons data from Excel files"""
     if request.method == 'POST' and request.FILES.get('excel_file'):
         excel_file = request.FILES['excel_file']
-        temp_upload_path = None
-
         try:
-            # 1. Save the uploaded file temporarily
+            # Define the path to save the uploaded file temporarily
             temp_upload_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'uploaded_persons_temp.xlsx')
             with open(temp_upload_path, 'wb+') as destination:
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            # 2. Read the uploaded Excel file into a pandas DataFrame
-            df_uploaded = pd.read_excel(temp_upload_path)
-            
-            # 3. Clean column names for the uploaded DataFrame
-            df_uploaded.columns = df_uploaded.columns.str.strip().str.lower()
+            # Read the Excel file into a pandas DataFrame
+            df = pd.read_excel(temp_upload_path)
 
-            # 4. Validate and convert 'cedula' column to string type
-            if 'cedula' not in df_uploaded.columns:
-                messages.error(request, "Error: 'cedula' column not found in the uploaded Excel file. ❌")
-                return HttpResponseRedirect('/import/')
-            df_uploaded['cedula'] = df_uploaded['cedula'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
+            # Remove the temporary uploaded file
+            os.remove(temp_upload_path)
 
-            # 5. Read the `cedulas.xlsx` file and prepare it for merging
-            cedulas_file_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'cedulas.xlsx')
-            df_new_rows = pd.DataFrame()
+            # Strip whitespace and convert column names to lowercase for consistent mapping
+            df.columns = df.columns.str.strip().str.lower()
 
-            if os.path.exists(cedulas_file_path):
-                df_cedulas = pd.read_excel(cedulas_file_path)
-                df_cedulas.columns = df_cedulas.columns.str.strip().str.lower()
-                
-                if 'cedula' in df_cedulas.columns:
-                    # Convert 'cedula' to string and clean up.
-                    df_cedulas['cedula'] = df_cedulas['cedula'].fillna('').astype(str).str.replace(r'\.0$', '', regex=True)
-                    
-                    # 6. Filter 'cedulas.xlsx' to get only new rows
-                    # This is the core logic change: we select rows from `df_cedulas`
-                    # where the 'cedula' value is NOT in the `df_uploaded` 'cedula' column.
-                    new_cedulas = df_cedulas[~df_cedulas['cedula'].isin(df_uploaded['cedula'])]
-                    df_new_rows = new_cedulas
-                    
-                    messages.info(request, f"Found {len(df_new_rows)} new records from 'cedulas.xlsx' to add. ➕")
-                else:
-                    messages.warning(request, "Warning: 'cedula' column not found in 'cedulas.xlsx'. No new rows will be added from this file. ⚠️")
-            else:
-                messages.warning(request, "Warning: 'cedulas.xlsx' not found at 'src/' path. Only the uploaded file will be processed. ⚠️")
-
-            # 7. Concatenate the uploaded DataFrame with the new rows DataFrame
-            # This combines the two sets of data without modifying existing rows.
-            df = pd.concat([df_uploaded, df_new_rows], ignore_index=True, sort=False)
-            
-            # 8. Apply the original column mapping to the combined DataFrame
+            # Define column mapping from Excel columns to model fields
             column_mapping = {
                 'id': 'id',
                 'nombre completo': 'nombre_completo',
@@ -744,47 +793,66 @@ def import_persons(request):
                 'activo': 'activo',
                 'division': 'area',
             }
-            existing_columns_to_rename = {k: v for k, v in column_mapping.items() if k in df.columns}
-            df = df.rename(columns=existing_columns_to_rename)
-            
-            # 9. Process the combined data
+
+            # Rename columns based on the mapping
+            df = df.rename(columns=column_mapping)
+
+            # Ensure 'estado' column exists, if 'activo' is present, use it to determine 'estado'
             if 'activo' in df.columns and 'estado' not in df.columns:
-                df['estado'] = df['activo'].apply(lambda x: 'Activo' if pd.notna(x) and x else 'Retirado')
+                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
             elif 'estado' not in df.columns:
-                df['estado'] = 'Activo'
+                df['estado'] = 'Activo' # Default to 'Activo' if neither 'estado' nor 'activo' is present
 
-            if 'nombre_completo' in df.columns:
-                df['nombre_completo'] = df['nombre_completo'].fillna('').astype(str).str.title()
-            
-            if 'raw_correo' in df.columns:
-                df['correo_to_use'] = df['raw_correo'].fillna('').astype(str).str.lower()
+            # Convert 'cedula' to string type to prevent issues with mixed types
+            if 'cedula' in df.columns:
+                df['cedula'] = df['cedula'].astype(str)
             else:
-                df['correo_to_use'] = ''
+                messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
+                return HttpResponseRedirect('/import/')
 
-            # 10. Prepare and save the output Excel file ('Personas.xlsx')
-            output_columns_headers = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo', 'AREA']
-            output_columns_df = pd.DataFrame(columns=output_columns_headers)
+            # Convert nombre_completo to title case if it exists
+            if 'nombre_completo' in df.columns:
+                df['nombre_completo'] = df['nombre_completo'].str.title()
 
-            output_columns_df['Id'] = df.get('id', pd.Series(dtype='object'))
-            output_columns_df['NOMBRE COMPLETO'] = df.get('nombre_completo', pd.Series(dtype='object'))
-            output_columns_df['Cedula'] = df.get('cedula', pd.Series(dtype='object'))
-            output_columns_df['Estado'] = df.get('estado', pd.Series(dtype='object'))
-            output_columns_df['Compania'] = df.get('compania', pd.Series(dtype='object'))
-            output_columns_df['CARGO'] = df.get('cargo', pd.Series(dtype='object'))
-            output_columns_df['correo'] = df.get('correo_to_use', pd.Series(dtype='object'))
-            output_columns_df['AREA'] = df.get('area', pd.Series(dtype='object'))
+            # Process 'raw_correo' to create 'correo_to_use' for the database and output
+            if 'raw_correo' in df.columns:
+                df['correo_to_use'] = df['raw_correo'].str.lower()
+            else:
+                df['correo_to_use'] = '' # Initialize if no raw email is present
 
+            # Define the columns for the output Excel file including 'Id', 'Estado', and the new 'correo' and 'AREA'
+            output_columns = ['Id', 'NOMBRE COMPLETO', 'Cedula', 'Estado', 'Compania', 'CARGO', 'correo', 'AREA']
+            output_columns_df = pd.DataFrame(columns=output_columns)
+
+            # Populate the output DataFrame with data from the processed DataFrame
+            if 'id' in df.columns:
+                output_columns_df['Id'] = df['id']
+            if 'nombre_completo' in df.columns:
+                output_columns_df['NOMBRE COMPLETO'] = df['nombre_completo']
+            if 'cedula' in df.columns:
+                output_columns_df['Cedula'] = df['cedula']
+            if 'estado' in df.columns:
+                output_columns_df['Estado'] = df['estado']
+            if 'compania' in df.columns:
+                output_columns_df['Compania'] = df['compania']
+            if 'cargo' in df.columns:
+                output_columns_df['CARGO'] = df['cargo']
+            if 'correo_to_use' in df.columns:
+                output_columns_df['correo'] = df['correo_to_use']
+            # Add 'AREA' to the output DataFrame
+            if 'area' in df.columns:
+                output_columns_df['AREA'] = df['area']
+            else:
+                output_columns_df['AREA'] = '' # Ensure column exists even if no data
+
+            # Define the path for the output Excel file
             output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'Personas.xlsx')
+
+            # Save the filtered and formatted DataFrame to a new Excel file
             output_columns_df.to_excel(output_excel_path, index=False)
-            messages.info(request, f"Generated 'Personas.xlsx' with {len(output_columns_df)} records. 📊")
 
-            # 11. Iterate over the combined DataFrame and update/create Person objects
-            processed_count = 0
-            for index, row in df.iterrows():
-                if pd.isna(row.get('cedula')) or str(row.get('cedula')).strip() == '':
-                    messages.warning(request, f"Skipping row {index+1} due to missing or empty 'Cedula'. ⚠️")
-                    continue
-
+            # Iterate over the DataFrame and update/create Person objects in the database
+            for _, row in df.iterrows():
                 Person.objects.update_or_create(
                     cedula=row['cedula'],
                     defaults={
@@ -793,18 +861,13 @@ def import_persons(request):
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
-                        'area': row.get('area', ''),
+                        'area': row.get('area', ''), # Add the 'area' field
                     }
                 )
-                processed_count += 1
 
-            messages.success(request, f'Excel files imported and new rows added! {processed_count} records processed. ✅')
-
+            messages.success(request, f'Archivo de personas importado exitosamente! {len(df)} registros procesados y Personas.xlsx generado.')
         except Exception as e:
-            messages.error(request, f'An unexpected error occurred: {str(e)} 🐞')
-        finally:
-            if temp_upload_path and os.path.exists(temp_upload_path):
-                os.remove(temp_upload_path)
+            messages.error(request, f'Error procesando archivo de personas: {str(e)}')
 
         return HttpResponseRedirect('/import/')
 
@@ -1598,47 +1661,76 @@ def delete_comment(request, cedula, comment_index):
     return redirect('person_details', cedula=cedula)
 
 
+# Corrected import_tcs function
 def import_tcs(request):
-    """
-    Handles the upload of PDF files for credit card statements, saves them to
-    the src/ directory, and then processes them using the tcs.py script.
-    """
     if request.method == 'POST':
-        # Retrieve PDF files and password from the form
         pdf_files = request.FILES.getlist('visa_pdf_files')
         pdf_password = request.POST.get('visa_pdf_password', '')
 
-        # Define the path to save the uploaded PDFs
-        upload_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
-        os.makedirs(upload_dir, exist_ok=True) 
+        if not pdf_files:
+            messages.error(request, 'No se seleccionaron archivos PDF.', extra_tags='import_tcs')
+            return redirect('import_page')
 
-        uploaded_file_names = []
+        input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
+        output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+
+        os.makedirs(input_pdf_dir, exist_ok=True) # Ensure input directory exists
+
+        # Clear existing PDFs in the input_pdf_dir before saving new ones
+        for filename in os.listdir(input_pdf_dir):
+            if filename.endswith(".pdf"):
+                os.remove(os.path.join(input_pdf_dir, filename))
+
+        files_saved = 0
         for pdf_file in pdf_files:
-            file_path = os.path.join(upload_dir, pdf_file.name)
+            file_path = os.path.join(input_pdf_dir, pdf_file.name)
             try:
                 with open(file_path, 'wb+') as destination:
                     for chunk in pdf_file.chunks():
                         destination.write(chunk)
-                uploaded_file_names.append(pdf_file.name)
+                files_saved += 1
             except Exception as e:
-                messages.error(request, f"Error al subir el archivo '{pdf_file.name}': {e}", extra_tags='import_tcs')
-                return redirect('import')
+                messages.error(request, f"Error saving PDF '{pdf_file.name}': {e}", extra_tags='import_tcs')
 
-        if uploaded_file_names:
+        if files_saved > 0:
             try:
+                # Set the password in tcs module
+                tcs.pdf_password = pdf_password
 
-                tcs.input_base_folder = upload_dir 
-                tcs.pdf_password = pdf_password 
-                tcs.run_pdf_processing() 
-
-                messages.success(request, "Archivos PDF de TCs procesados correctamente. Se generará un archivo Excel unificado en core/src/.", extra_tags='import_tcs')
-
+                # Call the tcs.run_pdf_processing with necessary arguments
+                tcs.run_pdf_processing(settings.BASE_DIR, input_pdf_dir, output_excel_dir)
+                messages.success(request, f'Se procesaron {files_saved} archivos PDF de extractos.', extra_tags='import_tcs')
             except Exception as e:
-                messages.error(request, f"Error al procesar los PDFs de TCs: {e}", extra_tags='import_tcs')
+                messages.error(request, f'Error durante el procesamiento de los PDFs de extractos: {e}', extra_tags='import_tcs')
         else:
-            messages.warning(request, "No se seleccionaron archivos PDF para importar.", extra_tags='import_tcs')
+            messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
 
-    return redirect('import')
+    return redirect('import_page') # Redirect back to the import page
+
+# --- New function for handling categorias.xlsx upload (from previous response) ---
+def import_categorias(request):
+    if request.method == 'POST':
+        if 'categorias_excel_file' in request.FILES:
+            uploaded_file = request.FILES['categorias_excel_file']
+            file_name = "categorias.xlsx"
+
+            target_directory = os.path.join(settings.BASE_DIR, "core", "src")
+            os.makedirs(target_directory, exist_ok=True)
+
+            file_path = os.path.join(target_directory, file_name)
+
+            try:
+                with open(file_path, 'wb+') as destination:
+                    for chunk in uploaded_file.chunks():
+                        destination.write(chunk)
+
+                df = pd.read_excel(file_path)
+                messages.success(request, f'Archivo "{file_name}" importado correctamente. {len(df)} registros procesados.', extra_tags='import_categorias')
+            except Exception as e:
+                messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
+        else:
+            messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
+    return redirect('import_page') 
 "@
 
 # Create core/conflicts.py
@@ -3063,19 +3155,10 @@ import pandas as pd
 from datetime import datetime
 
 # --- Configuration (can be modified by views.py) ---
-input_base_folder = "core/src/extractos"
-output_base_folder = "core/src"
-categorias_file = os.path.join("core/src", "categorias.xlsx")
-cedulas_file = os.path.join("core/src", "cedulas.xlsx")
+categorias_file = "" # Will be set dynamically
+cedulas_file = "" # This will now point to Personas.xlsx and be set dynamically
 pdf_password = ""
 
-# Global variables for input/output folders and password, to be set by the caller (views.py)
-input_base_folder = "core/src/extractos"
-output_base_folder = "core/src"
-
-# Create output base folder if it doesn't exist
-os.makedirs(output_base_folder, exist_ok=True)
-os.makedirs(input_base_folder, exist_ok=True)
 
 # --- TRM Data (Hardcoded - Pre-calculated Monthly Averages) ---
 trm_data = {
@@ -3126,17 +3209,30 @@ def formato_excel(valor):
     try:
         if isinstance(valor, (int, float)):
             return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        numero = float(str(valor).replace(",", "").replace(" ", ""))
+        # Handle cases where value might be a string with ',' for thousands and '.' for decimals (e.g., '1.234,56')
+        # or just a string with '.' for thousands and ',' for decimals (e.g., '1,234.56')
+        # First, remove thousands separators (both '.' and ',') then replace decimal separator to '.'
+        s_valor = str(valor).strip()
+        if re.match(r'^\d{1,3}(,\d{3})*(\.\d+)?$', s_valor): # Matches 1,234.56 or 1234.56
+            numero = float(s_valor.replace(",", ""))
+        elif re.match(r'^\d{1,3}(\.\d{3})*(,\d+)?$', s_valor): # Matches 1.234,56 or 1234,56
+            numero = float(s_valor.replace(".", "").replace(",", "."))
+        else: # Attempt direct conversion
+            numero = float(s_valor)
+
         return f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except ValueError:
+    except (ValueError, AttributeError):
         return valor
+
 
 # --- Categorias Data Loading ---
 categorias_df = pd.DataFrame()
 categorias_loaded = False
 
-def load_categorias_data():
-    global categorias_df, categorias_loaded
+# Modified to accept base_dir
+def load_categorias_data(base_dir):
+    global categorias_df, categorias_loaded, categorias_file
+    categorias_file = os.path.join(base_dir, "core", "src", "categorias.xlsx") # Set the full path here
     if os.path.exists(categorias_file):
         try:
             categorias_df = pd.read_excel(categorias_file)
@@ -3151,25 +3247,28 @@ def load_categorias_data():
     else:
         print(f"⚠️ Categorias file '{categorias_file}' not found. Categorization will not be available.")
 
-# --- Cedulas Data Loading ---
+# --- Cedulas Data Loading (now for Personas.xlsx) ---
 cedulas_df = pd.DataFrame()
 cedulas_loaded = False
 
-def load_cedulas_data():
-    global cedulas_df, cedulas_loaded
+# Modified to accept base_dir and reflect new filename/columns
+def load_cedulas_data(base_dir):
+    global cedulas_df, cedulas_loaded, cedulas_file
+    cedulas_file = os.path.join(base_dir, "core", "src", "Personas.xlsx") # Changed filename here
     if os.path.exists(cedulas_file):
         try:
             cedulas_df = pd.read_excel(cedulas_file)
-            if 'Tarjetahabiente' in cedulas_df.columns:
-                cedulas_df['Tarjetahabiente'] = cedulas_df['Tarjetahabiente'].astype(str).str.title().str.strip()
+            # Changed column check and conversion to 'NOMBRE COMPLETO' and 'CARGO'
+            if 'NOMBRE COMPLETO' in cedulas_df.columns and 'Cedula' in cedulas_df.columns and 'CARGO' in cedulas_df.columns:
+                cedulas_df['NOMBRE COMPLETO'] = cedulas_df['NOMBRE COMPLETO'].astype(str).str.title().str.strip()
                 cedulas_loaded = True
-                print(f"✅ Cedulas file '{cedulas_file}' loaded successfully.")
+                print(f"✅ Personas file '{cedulas_file}' loaded successfully.")
             else:
-                print(f"⚠️ Cedulas file '{cedulas_file}' loaded, but 'Tarjetahabiente' column not found. Cedula data will not be available.")
+                print(f"⚠️ Personas file '{cedulas_file}' loaded, but expected columns ('NOMBRE COMPLETO', 'Cedula', 'CARGO') not found. Personas data will not be available.")
         except Exception as e:
-            print(f"⚠️ Error loading Cedulas file '{cedulas_file}': {e}. Cedula data will not be available.")
+            print(f"⚠️ Error loading Personas file '{cedulas_file}': {e}. Personas data will not be available.")
     else:
-        print(f"⚠️ Cedulas file '{cedulas_file}' not found. Cedula data will not be available.")
+        print(f"⚠️ Personas file '{cedulas_file}' not found. Personas data will not be available.")
 
 
 # --- Regex for MC (from mc.py) ---
@@ -3187,16 +3286,21 @@ visa_pattern_transaccion = re.compile(
 visa_pattern_tarjeta = re.compile(r"TARJETA:\s+\*{12}(\d{4})")
 
 
-def run_pdf_processing():
+# Modified to accept base_dir, input_folder, and output_folder
+def run_pdf_processing(base_dir, input_folder, output_folder):
     """
-    Main function to process all PDFs in the input_base_folder.
+    Main function to process all PDFs in the input_folder.
     This function should be called from views.py.
     """
+    global input_base_folder, output_base_folder # Use globals to assign incoming paths
+    input_base_folder = input_folder
+    output_base_folder = output_folder
+
     all_resultados = [] # Combined list for all results
 
     load_trm_data() # This now loads from the hardcoded dictionary (monthly averages)
-    load_categorias_data()
-    load_cedulas_data()
+    load_categorias_data(base_dir) # Pass base_dir
+    load_cedulas_data(base_dir) # Pass base_dir (now loading Personas.xlsx)
 
     if os.path.exists(input_base_folder):
         for archivo in sorted(os.listdir(input_base_folder)):
@@ -3250,17 +3354,20 @@ def run_pdf_processing():
                                     # Pass the date object directly to obtener_trm
                                     tipo_cambio = obtener_trm(fecha_transaccion) if moneda_actual == "USD" else ""
 
+                                    # Determine the value for 'TRM Cierre'
+                                    trm_cierre_value = formato_excel(str(tipo_cambio)) if tipo_cambio else "1"
+
                                     all_resultados.append({
                                         "Archivo": archivo,
                                         "Tipo de Tarjeta": "Mastercard", # New column
                                         "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
                                         "Número de Tarjeta": ultimos_digitos,
                                         "Moneda": moneda_actual,
-                                        "Tipo de Cambio": formato_excel(str(tipo_cambio)) if tipo_cambio else "",
+                                        "TRM Cierre": trm_cierre_value, # Changed column name and value handling
+                                        "Valor Original": formato_excel(valor_original), # Keep this here for calculation later
                                         "Número de Autorización": autorizacion,
                                         "Fecha de Transacción": fecha_transaccion,
                                         "Descripción": descripcion.strip(), # Ensure description is stripped for matching
-                                        "Valor Original": formato_excel(valor_original),
                                         "Tasa Pactada": formato_excel(tasa_pactada),
                                         "Tasa EA Facturada": formato_excel(tasa_ea),
                                         "Cargos y Abonos": formato_excel(cargo),
@@ -3277,11 +3384,11 @@ def run_pdf_processing():
                                     "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
                                     "Número de Tarjeta": ultimos_digitos,
                                     "Moneda": "",
-                                    "Tipo de Cambio": "",
+                                    "TRM Cierre": "1", # Set to 1 for no TRM
+                                    "Valor Original": "", # Empty for no transactions
                                     "Número de Autorización": "Sin transacciones",
                                     "Fecha de Transacción": "",
                                     "Descripción": "",
-                                    "Valor Original": "",
                                     "Tasa Pactada": "",
                                     "Tasa EA Facturada": "",
                                     "Cargos y Abonos": "",
@@ -3323,11 +3430,11 @@ def run_pdf_processing():
                                                 "Tarjetahabiente": tarjetahabiente_visa,
                                                 "Número de Tarjeta": tarjeta_visa,
                                                 "Moneda": "",
-                                                "Tipo de Cambio": "",
+                                                "TRM Cierre": "1", # Set to 1 for no TRM
+                                                "Valor Original": "", # Empty for no transactions
                                                 "Número de Autorización": "Sin transacciones",
                                                 "Fecha de Transacción": "",
                                                 "Descripción": "",
-                                                "Valor Original": "",
                                                 "Tasa Pactada": "",
                                                 "Tasa EA Facturada": "",
                                                 "Cargos y Abonos": "",
@@ -3369,11 +3476,11 @@ def run_pdf_processing():
                                             "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
                                             "Número de Tarjeta": tarjeta_visa,
                                             "Moneda": "COP", # Assuming Visa are in COP as no currency explicit extraction
-                                            "Tipo de Cambio": "", # Not applicable for COP
+                                            "TRM Cierre": "1", # Not applicable for COP, set to 1
+                                            "Valor Original": formato_excel(valor_original_formatted), # Keep this here for calculation later
                                             "Número de Autorización": autorizacion,
                                             "Fecha de Transacción": pd.to_datetime(fecha_str, dayfirst=True).date() if fecha_str else None,
                                             "Descripción": descripcion.strip(), # Ensure description is stripped for matching
-                                            "Valor Original": formato_excel(valor_original_formatted),
                                             "Tasa Pactada": formato_excel(tasa_pactada),
                                             "Tasa EA Facturada": formato_excel(tasa_ea),
                                             "Cargos y Abonos": formato_excel(cargo_formatted),
@@ -3391,11 +3498,11 @@ def run_pdf_processing():
                                     "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
                                     "Número de Tarjeta": tarjeta_visa,
                                     "Moneda": "",
-                                    "Tipo de Cambio": "",
+                                    "TRM Cierre": "1", # Set to 1 for no TRM
+                                    "Valor Original": "", # Empty for no transactions
                                     "Número de Autorización": "Sin transacciones",
                                     "Fecha de Transacción": "",
                                     "Descripción": "",
-                                    "Valor Original": "",
                                     "Tasa Pactada": "",
                                     "Tasa EA Facturada": "",
                                     "Cargos y Abonos": "",
@@ -3418,6 +3525,8 @@ def run_pdf_processing():
         df_resultado_final = pd.DataFrame(all_resultados)
 
         # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
+        # This column will still be named 'Tarjetahabiente' in the dataframe derived from PDFs,
+        # but we'll merge it with the 'NOMBRE COMPLETO' from Personas.xlsx
         df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
 
         # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
@@ -3428,6 +3537,28 @@ def run_pdf_processing():
 
         # Add the new 'Cant. de Tarjetas' column
         df_resultado_final['Cant. de Tarjetas'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
+
+        # --- Calculate 'Valor COP' ---
+        # Helper function to convert formatted strings to float
+        def safe_float_conversion(value):
+            try:
+                # Remove thousands separator ('.') and replace decimal comma (',') with dot ('.')
+                if isinstance(value, str):
+                    s_value = value.replace(".", "").replace(",", ".")
+                    return float(s_value)
+                return float(value)
+            except (ValueError, TypeError):
+                return pd.NA # Use pandas Not Applicable for missing/invalid values
+
+        df_resultado_final['Valor Original Num'] = df_resultado_final['Valor Original'].apply(safe_float_conversion)
+        df_resultado_final['TRM Cierre Num'] = df_resultado_final['TRM Cierre'].apply(safe_float_conversion)
+
+        # Perform the multiplication, handling potential NaNs
+        df_resultado_final['Valor COP'] = (df_resultado_final['Valor Original Num'] * df_resultado_final['TRM Cierre Num']).apply(lambda x: formato_excel(x) if pd.notna(x) else '')
+
+        # Drop the temporary numeric columns
+        df_resultado_final = df_resultado_final.drop(columns=['Valor Original Num', 'TRM Cierre Num'])
+
 
         # Merge with categorias_df if loaded
         if categorias_loaded:
@@ -3440,49 +3571,67 @@ def run_pdf_processing():
             df_resultado_final['Subcategoría'] = ''
             df_resultado_final['Zona'] = ''
 
-        # Merge with cedulas_df if loaded
+        # Merge with cedulas_df (now Personas.xlsx) if loaded
         if cedulas_loaded:
-            print("Merging all results with cedulas.xlsx...")
-            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['Tarjetahabiente', 'Cedula', 'Tipo', 'Cargo']],
-                                    on='Tarjetahabiente', how='left')
-        else:
-            # Add empty columns if cedulas.xlsx was not loaded
-            df_resultado_final['Cedula'] = ''
-            df_resultado_final['Tipo'] = ''
-            df_resultado_final['Cargo'] = ''
+            print("Merging all results with Personas.xlsx...")
+            # Changed 'Tarjetahabiente' to 'NOMBRE COMPLETO' for the join key on cedulas_df
+            # Removed 'Tipo' and kept 'Cedula' and 'CARGO'
+            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO']],
+                                    left_on='Tarjetahabiente', # Left DF still has this column
+                                    right_on='NOMBRE COMPLETO', # Right DF has this column
+                                    how='left')
+            # After merge, if 'NOMBRE COMPLETO' is the key from the right table, we might have duplicate person names
+            # If so, and we want to keep one, consider using .drop_duplicates() on the Personas.xlsx dataframe
+            # before merging or handle potential NaNs from non-matches after the merge.
 
-        # Get the base columns that are always present or added by extraction
-        base_columns = [
-            "Archivo",
-            "Tipo de Tarjeta",
+            # Drop the redundant 'NOMBRE COMPLETO' column from the merge result, keeping 'Tarjetahabiente'
+            # Or rename 'NOMBRE COMPLETO' to 'Tarjetahabiente' if preferred.
+            # For simplicity, let's keep 'Tarjetahabiente' as the primary person identifier from PDFs.
+            if 'NOMBRE COMPLETO' in df_resultado_final.columns and 'Tarjetahabiente' in df_resultado_final.columns and 'NOMBRE COMPLETO' != 'Tarjetahabiente':
+                 df_resultado_final.drop(columns=['NOMBRE COMPLETO'], errors='ignore', inplace=True)
+
+        else:
+            # Add empty columns if Personas.xlsx was not loaded
+            df_resultado_final['Cedula'] = ''
+            df_resultado_final['CARGO'] = '' # Changed from 'Cargo'
+
+        # Define all expected columns in their desired order
+        # We will dynamically build this list to ensure all columns exist before selecting them
+        # Start with the fixed order for the initial columns
+        ordered_columns = [
+            "Cedula",
             "Tarjetahabiente",
+            "CARGO",
+            "Tipo de Tarjeta",
             "Número de Tarjeta",
-            "Cant. de Tarjetas", # The new column
+            "Cant. de Tarjetas",
             "Moneda",
-            "Tipo de Cambio",
+            "TRM Cierre",
+            "Valor Original",
+            "Valor COP",
             "Número de Autorización",
             "Fecha de Transacción",
             "Día",
             "Descripción",
-            "Valor Original",
+            "Categoría",
+            "Subcategoría",
+            "Zona",
             "Tasa Pactada",
             "Tasa EA Facturada",
             "Cargos y Abonos",
             "Saldo a Diferir",
             "Cuotas",
             "Página"
+            # "Archivo" will be added at the very end
         ]
 
-        # Add columns from merges if they exist in the final DataFrame
-        if 'Categoría' in df_resultado_final.columns:
-            base_columns.extend(['Categoría', 'Subcategoría', 'Zona'])
-        if 'Cedula' in df_resultado_final.columns:
-            base_columns.extend(['Cedula', 'Tipo', 'Cargo'])
+        # Ensure "Archivo" is added to the end if it exists
+        if "Archivo" in df_resultado_final.columns:
+            ordered_columns.append("Archivo")
 
-        # Filter to only include columns that actually exist in the DataFrame to avoid errors
-        final_columns_order = [col for col in base_columns if col in df_resultado_final.columns]
-        df_resultado_final = df_resultado_final[final_columns_order]
-
+        # Filter to only include columns that actually exist in the DataFrame
+        # This loop also ensures the order is maintained based on ordered_columns
+        df_resultado_final = df_resultado_final[[col for col in ordered_columns if col in df_resultado_final.columns]]
 
         # Change the filename to a static name instead of a timestamp
         archivo_salida_unificado = "tcs.xlsx"
@@ -3493,10 +3642,6 @@ def run_pdf_processing():
         print(df_resultado_final.head())
     else:
         print("\n⚠️ No se extrajo ningún dato de los archivos PDF (MC o VISA).")
-
-# This ensures that the processing logic only runs when run_pdf_processing() is called explicitly
-if __name__ == "__main__":
-    run_pdf_processing()
 "@
 
 # Update project urls.py with proper admin configuration
@@ -4509,22 +4654,19 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="loading-content">
         <h4>Procesando datos...</h4>
         <div class="progress">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                 role="progressbar" 
+            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar"
                  style="width: 100%"></div>
         </div>
         <p>Por favor espere, esto puede tomar unos segundos.</p>
     </div>
 </div>
 
-<!-- Add loading CSS -->
 <link rel="stylesheet" href="{% static 'css/loading.css' %}">
 
-<!-- Add loading JS -->
 <script src="{% static 'js/loading.js' %}"></script>
 
 <div class="row mb-4">
-    <!-- Personas Card -->
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
@@ -4540,7 +4682,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             {% for message in messages %}
                 {% if 'import_persons' in message.tags %}
                 <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
@@ -4557,7 +4699,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 
-    <!-- Conflictos Card -->
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
@@ -4573,7 +4714,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             {% for message in messages %}
                 {% if 'import_conflict_excel' in message.tags %}
                 <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">      
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
@@ -4590,7 +4731,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 
-    <!-- Bienes y Rentas Card -->
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
@@ -4627,7 +4767,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 
-    <!-- TCs Card -->
     <div class="col-md-3 mb-4">
         <div class="card h-100">
             <div class="card-body">
@@ -4654,8 +4793,28 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 
-<!-- Analysis Results Row -->
-<div class="row">
+    <div class="col-md-3 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_categorias' %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <input type="file" class="form-control" id="categorias_excel_file" name="categorias_excel_file" accept=".xlsx,.xls" required>
+                        <div class="form-text">Seleccione el archivo categorias.xlsx</div>
+                    </div>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Categorías TCs</button>
+                </form>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success">
+                        {{ categorias_count }} Categorías Registradas </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div> <div class="row">
     <div class="col-12">
         <div class="card h-100">
             <div class="card-header bg-light">
@@ -4691,7 +4850,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                         {% endif %}
                                     </span>
                                     {% if result.status == 'error' and result.error %}
-                                    <small class="text-muted d-block">{{ result.error }}</small>   
+                                    <small class="text-muted d-block">{{ result.error }}</small>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -5453,50 +5612,11 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        value="{{ request.GET.q }}">
             </div>
 
-            <div class="col-md-3">
-                <input type="text" 
-                       name="numero_tarjeta" 
-                       class="form-control form-control-lg" 
-                       placeholder="Numero de Tarjeta (ultimos 4 digitos)" 
-                       value="{{ request.GET.numero_tarjeta }}">
-            </div>
-
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
                 <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
             
-            <div class="col-md-3">
-                <div class="dropdown">
-                    <button class="form-control form-control-lg btn btn-outline-secondary dropdown-toggle" type="button" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left; background-color: rgb(255, 255, 255);" >
-                        {% if selected_category %}
-                            {{ selected_category|capfirst }}
-                        {% else %}
-                            Buscar por categoria...
-                        {% endif %}
-                    </button>
-                    <ul class="dropdown-menu" aria-labelledby="dropdownMenuButton">
-                        <li><h6 class="dropdown-header">Seleccione una categoría</h6></li>
-                        <li>
-                            <button type="submit" name="category_filter" value="" class="dropdown-item {% if not selected_category %}active{% endif %}">Todas</button>
-                        </li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><button type="submit" name="category_filter" value="restaurantes" class="dropdown-item {% if selected_category == 'restaurantes' %}active{% endif %}">Restaurantes</button></li>
-                        <li><button type="submit" name="category_filter" value="suscripciones" class="dropdown-item {% if selected_category == 'suscripciones' %}active{% endif %}">Suscripciones</button></li>
-                        <li><button type="submit" name="category_filter" value="gastos_diversos" class="dropdown-item {% if selected_category == 'gastos_diversos' %}active{% endif %}">Gastos diversos</button></li>
-                        <li><button type="submit" name="category_filter" value="compras" class="dropdown-item {% if selected_category == 'compras' %}active{% endif %}">Compras</button></li>
-                        <li><button type="submit" name="category_filter" value="gastos_vehiculos" class="dropdown-item {% if selected_category == 'gastos_vehiculos' %}active{% endif %}">Gastos Vehiculos</button></li>
-                        <li><button type="submit" name="category_filter" value="gastos_medicos" class="dropdown-item {% if selected_category == 'gastos_medicos' %}active{% endif %}">Gastos Medicos</button></li>
-                        <li><button type="submit" name="category_filter" value="tecnologia" class="dropdown-item {% if selected_category == 'tecnologia' %}active{% endif %}">Tecnologia</button></li>
-                        <li><button type="submit" name="category_filter" value="pagos_online" class="dropdown-item {% if selected_category == 'pagos_online' %}active{% endif %}">Pagos online</button></li>
-                        <li><button type="submit" name="category_filter" value="telefono_internet" class="dropdown-item {% if selected_category == 'telefono_internet' %}active{% endif %}">Servicio telefono e internet</button></li>
-                        <li><button type="submit" name="category_filter" value="gastos_viaje" class="dropdown-item {% if selected_category == 'gastos_viaje' %}active{% endif %}">Gastos Viaje</button></li>
-                        <li><button type="submit" name="category_filter" value="avances" class="dropdown-item {% if selected_category == 'avances' %}active{% endif %}">Avances</button></li>
-                        <li><button type="submit" name="category_filter" value="gastos_legales" class="dropdown-item {% if selected_category == 'gastos_legales' %}active{% endif %}">Gastos Legales</button></li>
-                    </ul>
-                </div>
-            </div>
-
         </form>
     </div>
 </div>
