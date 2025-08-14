@@ -148,6 +148,42 @@ class FinancialReport(models.Model):
 
     def __str__(self):
         return f"Reporte Financiero para {self.person.nombre_completo} (Periodo: {self.fk_id_periodo})"
+    
+
+class CreditCard(models.Model):
+    id = models.AutoField(primary_key=True)
+
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.SET_NULL,
+        related_name='credit_cards', 
+        to_field='cedula',
+        db_column='cedula', 
+        null=True,
+        blank=True
+    )
+
+    tipo_tarjeta = models.CharField(max_length=50, null=True, blank=True)
+    numero_tarjeta = models.CharField(max_length=20, null=True, blank=True) # Número de Tarjeta
+    moneda = models.CharField(max_length=10, null=True, blank=True)
+    trm_cierre = models.CharField(max_length=50, null=True, blank=True) # Renombrado y tipo ajustado a cómo lo genera tcs.py (string)
+    valor_original = models.CharField(max_length=50, null=True, blank=True) # Tipo ajustado a string
+    valor_cop = models.CharField(max_length=50, null=True, blank=True) # Agregado de nuevo, tipo ajustado a string
+    numero_autorizacion = models.CharField(max_length=100, null=True, blank=True)
+    fecha_transaccion = models.DateField(null=True, blank=True)
+    dia = models.CharField(max_length=20, null=True, blank=True)
+    descripcion = models.TextField(null=True, blank=True)
+    categoria = models.CharField(max_length=255, null=True, blank=True)
+    subcategoria = models.CharField(max_length=255, null=True, blank=True)
+    zona = models.CharField(max_length=255, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.descripcion} - {self.valor_cop} (Tarjeta: {self.numero_tarjeta})"
+
+    class Meta:
+        verbose_name = "Tarjeta de Crédito"
+        verbose_name_plural = "Tarjetas de Crédito"
+        unique_together = ('person', 'fecha_transaccion', 'numero_autorizacion', 'valor_original')
 "@
 
 # Create admin.py with enhanced configuration
@@ -475,6 +511,8 @@ urlpatterns = [
     path('person/<str:cedula>/delete_comment/<int:comment_index>/', views.delete_comment, name='delete_comment'),
     path('import/', ImportView.as_view(), name='import_page'), 
     path('import-categorias/', views.import_categorias, name='import_categorias'),
+    path('import_tcs/', views.import_tcs, name='import_tcs'),
+    path('tcs_data/', views.CreditCardTransactionsView.as_view(), name='tcs_data'),
 ]
 "@
 
@@ -492,7 +530,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from django.core.paginator import Paginator
-from core.models import Person, Conflict, FinancialReport
+from core.models import Person, Conflict, FinancialReport, CreditCard
 from django.db.models import Q
 import subprocess
 import msoffcrypto
@@ -573,6 +611,7 @@ def register_superuser(request):
 
     return render(request, 'registration/register.html')
 
+
 class ImportView(LoginRequiredMixin, TemplateView):
     template_name = 'import.html'
 
@@ -587,8 +626,8 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context['person_count'] = Person.objects.count()
         context['finances_count'] = FinancialReport.objects.count()
         context['alerts_count'] = Person.objects.filter(revisar=True).count()
-        # Assuming tc_count will also come from a model if you have one
-        # context['tc_count'] = CreditCardTransaction.objects.count()
+        # Updated to count CreditCard entries
+        context['tc_count'] = CreditCard.objects.count()
 
 
         analysis_results = []
@@ -622,18 +661,18 @@ class ImportView(LoginRequiredMixin, TemplateView):
             context['conflict_count'] = conflicts_status['records']
 
         # --- Status for tcs.xlsx ---
-        tcs_status = get_file_status('tcs.xlsx')
-        analysis_results.append(tcs_status)
-        if tcs_status['status'] == 'success':
-            context['tc_count'] = tcs_status['records'] # Update tcs_count in context
+        tcs_excel_status = get_file_status('tcs.xlsx')
+        analysis_results.append(tcs_excel_status)
+        if tcs_excel_status['status'] == 'success':
+            context['tc_count'] = tcs_excel_status['records'] # Update tcs_count in context
 
-        # --- New: Status for categorias.xlsx ---
+        # --- Status for categorias.xlsx ---
         categorias_status = get_file_status('categorias.xlsx')
         analysis_results.append(categorias_status)
         if categorias_status['status'] == 'success':
-            context['categorias_count'] = categorias_status['records'] # Pass this new count to the template
+            context['categorias_count'] = categorias_status['records']
         else:
-            context['categorias_count'] = 0 # Default to 0 if file not found or error
+            context['categorias_count'] = 0
 
 
         # --- Status for Nets.py output files ---
@@ -652,7 +691,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
         idtrends_status = get_file_status('idTrends.xlsx')
         analysis_results.append(idtrends_status)
         if idtrends_status['status'] == 'success':
-            context['financial_report_count'] = idtrends_status['records'] # Update financial report count
+            context['financial_report_count'] = idtrends_status['records']
 
 
         context['analysis_results'] = analysis_results
@@ -682,9 +721,10 @@ def import_categorias(request):
                 messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
         else:
             messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
-    return redirect('import_page') # Ensure 'import_page' is the name of your ImportView URL
+    return redirect('import_page')
 
-# --- Modify your existing import_tcs function ---
+
+# Updated import_tcs function
 def import_tcs(request):
     if request.method == 'POST':
         pdf_files = request.FILES.getlist('visa_pdf_files')
@@ -696,6 +736,7 @@ def import_tcs(request):
 
         input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
         output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+        tcs_excel_path = os.path.join(output_excel_dir, "tcs.xlsx") # Path to the output Excel
 
         os.makedirs(input_pdf_dir, exist_ok=True) # Ensure input directory exists
 
@@ -717,16 +758,106 @@ def import_tcs(request):
 
         if files_saved > 0:
             try:
-                # Call the tcs.run_pdf_processing with necessary arguments
-                tcs.pdf_password = pdf_password # Set the password in tcs module
+                tcs.pdf_password = pdf_password
                 tcs.run_pdf_processing(settings.BASE_DIR, input_pdf_dir, output_excel_dir)
+
+                # --- NEW LOGIC: Load tcs.xlsx into CreditCard model ---
+                if os.path.exists(tcs_excel_path):
+                    df_tcs = pd.read_excel(tcs_excel_path)
+                    transactions_created = 0
+                    transactions_updated = 0
+
+                    for index, row in df_tcs.iterrows():
+                        cedula = row.get('Cedula') # Get Cedula from the DataFrame row
+                        if pd.isna(cedula) or cedula == '':
+                            print(f"Skipping row {index}: Missing Cedula for transaction {row.get('Descripción')}")
+                            continue
+
+                        # Find or create the Person.
+                        person_obj, created = Person.objects.get_or_create(
+                            cedula=str(cedula), # Ensure cedula is a string for CharField
+                            defaults={
+                                'nombre': row.get('Tarjetahabiente', ''),
+                                'cargo': row.get('CARGO', ''),
+                                'compania': '',
+                                'area': ''
+                            }
+                        )
+                        if created:
+                            print(f"Created new Person: {person_obj.cedula}")
+
+
+                        # Prepare data for CreditCard
+                        # Note: We use .get() with a default empty string for robustness against missing columns in Excel
+                        card_data = {
+                            'person': person_obj,
+                            'tipo_tarjeta': row.get('Tipo de Tarjeta', ''),
+                            'numero_tarjeta': str(row.get('Número de Tarjeta', '')),
+                            'moneda': row.get('Moneda', ''),
+                            'trm_cierre': str(row.get('TRM Cierre', '')),
+                            'valor_original': str(row.get('Valor Original', '')),
+                            'valor_cop': str(row.get('Valor COP', '')),
+                            'numero_autorizacion': str(row.get('Número de Autorización', '')),
+                            'fecha_transaccion': pd.to_datetime(row.get('Fecha de Transacción'), errors='coerce').date() if pd.notna(row.get('Fecha de Transacción')) else None,
+                            'dia': row.get('Día', ''),
+                            'descripcion': row.get('Descripción', ''),
+                            'categoria': row.get('Categoría', ''),
+                            'subcategoria': row.get('Subcategoría', ''),
+                            'zona': row.get('Zona', ''),
+                            # No 'cant_tarjetas', 'cargos_abonos', 'archivo', 'cedula_TC' as per new model
+                        }
+
+                        # Check for existing transaction to avoid duplicates on re-import
+                        lookup_fields = {
+                            'person': person_obj,
+                            'fecha_transaccion': card_data['fecha_transaccion'],
+                            'valor_original': card_data['valor_original']
+                        }
+                        if card_data['numero_autorizacion'] and card_data['numero_autorizacion'] != 'Sin transacciones':
+                            lookup_fields['numero_autorizacion'] = card_data['numero_autorizacion']
+                        else:
+                            # If no auth number, try to use description to make it somewhat unique
+                            lookup_fields['descripcion'] = card_data['descripcion']
+
+                        lookup_fields = {k: v for k, v in lookup_fields.items() if v is not None}
+
+
+                        try:
+                            obj, created = CreditCard.objects.update_or_create( # Changed to CreditCard
+                                defaults=card_data,
+                                **lookup_fields
+                            )
+                            if created:
+                                transactions_created += 1
+                            else:
+                                transactions_updated += 1
+                        except Exception as e:
+                            messages.error(request, f"Error saving transaction row {index} for {cedula}: {e}", extra_tags='import_tcs')
+                            print(f"Error saving transaction row {index} for {cedula}: {e} - Data: {card_data}")
+
+                    messages.success(request, f'Datos de extractos cargados a la base de datos. {transactions_created} creados, {transactions_updated} actualizados.', extra_tags='import_tcs')
+
                 messages.success(request, f'Se procesaron {files_saved} archivos PDF de extractos.', extra_tags='import_tcs')
             except Exception as e:
                 messages.error(request, f'Error durante el procesamiento de los PDFs de extractos: {e}', extra_tags='import_tcs')
         else:
             messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
 
-    return redirect('import_page') # Redirect back to the import page
+    return redirect('import_page')
+
+
+# View for displaying Credit Card Transactions
+class CreditCardTransactionsView(LoginRequiredMixin, TemplateView):
+    template_name = 'tcs.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Retrieve all credit card transactions, selecting related Person data
+        transactions = CreditCard.objects.select_related('person').all().order_by('fecha_transaccion', 'person__nombre')
+
+        context['transactions'] = transactions
+        return context
 
 @login_required
 def main(request):
@@ -4226,7 +4357,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_data' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -4802,7 +4933,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <input type="file" class="form-control" id="categorias_excel_file" name="categorias_excel_file" accept=".xlsx,.xls" required>
                         <div class="form-text">Seleccione el archivo categorias.xlsx</div>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Categorías TCs</button>
+                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Categorias TCs</button>
                 </form>
             </div>
             <div class="card-footer">
@@ -5629,32 +5760,42 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <tr>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__nombre_completo&sort_direction={% if current_order == 'person__nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Persona
+                                Nombre
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cedula&sort_direction={% if current_order == 'person__cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cedula
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__cargo&sort_direction={% if current_order == 'person__cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Cargo
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tarjetahabiente&sort_direction={% if current_order == 'tarjetahabiente' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Tarjetahabiente
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__compania&sort_direction={% if current_order == 'person__compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Compañia
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__area&sort_direction={% if current_order == 'person__area' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Area
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tipo_tarjeta&sort_direction={% if current_order == 'tipo_tarjeta' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Tipo Tarjeta
                             </a>
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=numero_tarjeta&sort_direction={% if current_order == 'numero_tarjeta' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                No. Tarjeta
+                                Numero de Tarjeta
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_transaccion&sort_direction={% if current_order == 'fecha_transaccion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Fecha Transaccion
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=moneda&sort_direction={% if current_order == 'moneda' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Moneda
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=descripcion&sort_direction={% if current_order == 'descripcion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Descripcion
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=trm_cierre&sort_direction={% if current_order == 'trm_cierre' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                TRM Cierre
                             </a>
                         </th>
                         <th>
@@ -5663,38 +5804,43 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargos_abonos&sort_direction={% if current_order == 'cargos_abonos' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cargos/Abonos
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=saldo_a_diferir&sort_direction={% if current_order == 'saldo_a_diferir' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Saldo a Diferir
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cuotas&sort_direction={% if current_order == 'cuotas' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Cuotas
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tasa_pactada&sort_direction={% if current_order == 'tasa_pactada' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Tasa Pactada
-                            </a>
-                        </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=tasa_ea_facturada&sort_direction={% if current_order == 'tasa_ea_facturada' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Tasa EA Facturada
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=valor_cop&sort_direction={% if current_order == 'valor_cop' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Valor COP
                             </a>
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=numero_autorizacion&sort_direction={% if current_order == 'numero_autorizacion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                No. Autorizacion
+                                Numero de Autorizacion
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=pagina&sort_direction={% if current_order == 'pagina' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Pagina
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_transaccion&sort_direction={% if current_order == 'fecha_transaccion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Fecha de Transacción
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=dia&sort_direction={% if current_order == 'dia' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Dia
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=descripcion&sort_direction={% if current_order == 'descripcion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Descripcion
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=categoria&sort_direction={% if current_order == 'categoria' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Categoria
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=subcategoria&sort_direction={% if current_order == 'subcategoria' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Subcategoria
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=zona&sort_direction={% if current_order == 'zona' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                                Zona
                             </a>
                         </th>
                         <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
@@ -5703,20 +5849,25 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <tbody>
                     {% for transaction in tcs_transactions %}
                         <tr>
-                            <td>{{ transaction.person.nombre_completo }}</td>
-                            <td>{{ transaction.person.cedula }}</td>
-                            <td>{{ transaction.tarjetahabiente|default:"N/A" }}</td>
+                            {# Data from Person model #}
+                            <td>{{ transaction.person.nombre_completo|default:"N/A" }}</td>
+                            <td>{{ transaction.person.cargo|default:"N/A" }}</td>
+                            <td>{{ transaction.person.compania|default:"N/A" }}</td>
+                            <td>{{ transaction.person.area|default:"N/A" }}</td>
+                            {# Data from CreditCard model and others #}
+                            <td>{{ transaction.tipo_tarjeta|default:"N/A" }}</td>
                             <td>{{ transaction.numero_tarjeta|default:"N/A" }}</td>
-                            <td>{{ transaction.fecha_transaccion|date:"Y-m-d"|default:"N/A" }}</td>
-                            <td>{{ transaction.descripcion|default:"N/A" }}</td>
+                            <td>{{ transaction.moneda|default:"N/A" }}</td>
+                            <td>{{ transaction.trm_cierre|default:"N/A"|floatformat:2 }}</td>
                             <td>{{ transaction.valor_original|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ transaction.cargos_abonos|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ transaction.saldo_a_diferir|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ transaction.cuotas|default:"N/A" }}</td>
-                            <td>{{ transaction.tasa_pactada|default:"N/A" }}</td>
-                            <td>{{ transaction.tasa_ea_facturada|default:"N/A" }}</td>
+                            <td>{{ transaction.valor_cop|default:"N/A"|floatformat:2 }}</td>
                             <td>{{ transaction.numero_autorizacion|default:"N/A" }}</td>
-                            <td>{{ transaction.pagina|default:"N/A" }}</td>
+                            <td>{{ transaction.fecha_transaccion|date:"Y-m-d"|default:"N/A" }}</td>
+                            <td>{{ transaction.dia|default:"N/A" }}</td>
+                            <td>{{ transaction.descripcion|default:"N/A" }}</td>
+                            <td>{{ transaction.categoria|default:"N/A" }}</td>
+                            <td>{{ transaction.subcategoria|default:"N/A" }}</td>
+                            <td>{{ transaction.zona|default:"N/A" }}</td>
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' transaction.person.cedula %}" 
                                    class="btn btn-custom-primary btn-sm"
@@ -5727,7 +5878,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="15" class="text-center py-4">
+                            <td colspan="18" class="text-center py-4"> {# Updated colspan to match the new number of columns #}
                                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end or request.GET.category_filter %}
                                     Sin transacciones de tarjetas de credito que coincidan con los filtros.
                                 {% else %}
