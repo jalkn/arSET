@@ -9,19 +9,19 @@ function arpa {
     Write-Host "🚀 Creating ARPA" -ForegroundColor $YELLOW
 
     # Create Python virtual environment
-    python -m venv .venv
+    python3 -m venv .venv
     .\.venv\scripts\activate
 
     # Install required Python packages
-    python.exe -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    python3 -m pip install --upgrade pip
+    python3 -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
     cd arpa
 
     # Create core app
-    python manage.py startapp core
+    python3 manage.py startapp core
 
     # Create templates directory structure
     $directories = @(
@@ -1015,7 +1015,7 @@ def import_conflicts(request):
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
+            subprocess.run(['python3', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
 
             import pandas as pd
             from core.models import Person, Conflict
@@ -1658,16 +1658,16 @@ def import_finances(request):
             # Run the analysis scripts in sequence
             try:
                 # Run cats.py analysis
-                subprocess.run(['python', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run nets.py analysis
-                subprocess.run(['python', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run trends.py analysis
-                subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run idTrends.py analysis
-                subprocess.run(['python', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # After idTrends.py generates idTrends.xlsx, import the data into the FinancialReport model
                 import_financial_reports(request) # Call the new import function
@@ -3666,8 +3666,8 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
         # Add the 'Día' column
         df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') # Use 'es_ES' for Spanish day names
 
-        # Add the new 'Cant. de Tarjetas' column
-        df_resultado_final['Cant. de Tarjetas'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
+        # Add the new 'Tar. x Per.' column
+        df_resultado_final['Tar. x Per.'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
 
         # --- Calculate 'Valor COP' ---
         # Helper function to convert formatted strings to float
@@ -3735,7 +3735,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
             "CARGO",
             "Tipo de Tarjeta",
             "Número de Tarjeta",
-            "Cant. de Tarjetas",
+            "Tar. x Per.",
             "Moneda",
             "TRM Cierre",
             "Valor Original",
@@ -7721,17 +7721,17 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 "@
 
     # Run migrations
-    python manage.py makemigrations core
-    python manage.py migrate
+    python3 manage.py makemigrations core
+    python3 manage.py migrate
 
     # Create superuser
-    #python manage.py createsuperuser
+    #python3 manage.py createsuperuser
 
-    python manage.py collectstatic --noinput
+    python3 manage.py collectstatic --noinput
 
     # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
-    python manage.py runserver
+    python3 manage.py runserver
 }
 
 arpa
