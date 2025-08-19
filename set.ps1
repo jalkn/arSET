@@ -9,19 +9,19 @@ function arpa {
     Write-Host "🚀 Creating ARPA" -ForegroundColor $YELLOW
 
     # Create Python virtual environment
-    python3 -m venv .venv
+    python -m venv .venv
     .\.venv\scripts\activate
 
     # Install required Python packages
-    python3 -m pip install --upgrade pip
-    python3 -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    python -m pip install --upgrade pip
+    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
     cd arpa
 
     # Create core app
-    python3 manage.py startapp core
+    python manage.py startapp core
 
     # Create templates directory structure
     $directories = @(
@@ -698,154 +698,6 @@ class ImportView(LoginRequiredMixin, TemplateView):
         return context
 
 
-# Function for handling categorias.xlsx upload
-def import_categorias(request):
-    if request.method == 'POST':
-        if 'categorias_excel_file' in request.FILES:
-            uploaded_file = request.FILES['categorias_excel_file']
-            file_name = "categorias.xlsx"
-
-            target_directory = os.path.join(settings.BASE_DIR, "core", "src")
-            os.makedirs(target_directory, exist_ok=True)
-
-            file_path = os.path.join(target_directory, file_name)
-
-            try:
-                with open(file_path, 'wb+') as destination:
-                    for chunk in uploaded_file.chunks():
-                        destination.write(chunk)
-
-                df = pd.read_excel(file_path)
-                messages.success(request, f'Archivo "{file_name}" importado correctamente. {len(df)} registros procesados.', extra_tags='import_categorias')
-            except Exception as e:
-                messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
-        else:
-            messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
-    return redirect('import_page')
-
-
-# Updated import_tcs function
-def import_tcs(request):
-    if request.method == 'POST':
-        pdf_files = request.FILES.getlist('visa_pdf_files')
-        pdf_password = request.POST.get('visa_pdf_password', '')
-
-        if not pdf_files:
-            messages.error(request, 'No se seleccionaron archivos PDF.', extra_tags='import_tcs')
-            return redirect('import_page')
-
-        input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
-        output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
-        tcs_excel_path = os.path.join(output_excel_dir, "tcs.xlsx") # Path to the output Excel
-
-        os.makedirs(input_pdf_dir, exist_ok=True) # Ensure input directory exists
-
-        # Clear existing PDFs in the input_pdf_dir before saving new ones
-        for filename in os.listdir(input_pdf_dir):
-            if filename.endswith(".pdf"):
-                os.remove(os.path.join(input_pdf_dir, filename))
-
-        files_saved = 0
-        for pdf_file in pdf_files:
-            file_path = os.path.join(input_pdf_dir, pdf_file.name)
-            try:
-                with open(file_path, 'wb+') as destination:
-                    for chunk in pdf_file.chunks():
-                        destination.write(chunk)
-                files_saved += 1
-            except Exception as e:
-                messages.error(request, f"Error saving PDF '{pdf_file.name}': {e}", extra_tags='import_tcs')
-
-        if files_saved > 0:
-            try:
-                tcs.pdf_password = pdf_password
-                tcs.run_pdf_processing(settings.BASE_DIR, input_pdf_dir, output_excel_dir)
-
-                # --- NEW LOGIC: Load tcs.xlsx into CreditCard model ---
-                if os.path.exists(tcs_excel_path):
-                    df_tcs = pd.read_excel(tcs_excel_path)
-                    transactions_created = 0
-                    transactions_updated = 0
-
-                    for index, row in df_tcs.iterrows():
-                        cedula = row.get('Cedula') # Get Cedula from the DataFrame row
-                        if pd.isna(cedula) or cedula == '':
-                            print(f"Skipping row {index}: Missing Cedula for transaction {row.get('Descripción')}")
-                            continue
-
-                        # Find or create the Person.
-                        person_obj, created = Person.objects.get_or_create(
-                            cedula=str(cedula), # Ensure cedula is a string for CharField
-                            defaults={
-                                'nombre': row.get('Tarjetahabiente', ''),
-                                'cargo': row.get('CARGO', ''),
-                                'compania': '',
-                                'area': ''
-                            }
-                        )
-                        if created:
-                            print(f"Created new Person: {person_obj.cedula}")
-
-
-                        # Prepare data for CreditCard
-                        # Note: We use .get() with a default empty string for robustness against missing columns in Excel
-                        card_data = {
-                            'person': person_obj,
-                            'tipo_tarjeta': row.get('Tipo de Tarjeta', ''),
-                            'numero_tarjeta': str(row.get('Número de Tarjeta', '')),
-                            'moneda': row.get('Moneda', ''),
-                            'trm_cierre': str(row.get('TRM Cierre', '')),
-                            'valor_original': str(row.get('Valor Original', '')),
-                            'valor_cop': str(row.get('Valor COP', '')),
-                            'numero_autorizacion': str(row.get('Número de Autorización', '')),
-                            'fecha_transaccion': pd.to_datetime(row.get('Fecha de Transacción'), errors='coerce').date() if pd.notna(row.get('Fecha de Transacción')) else None,
-                            'dia': row.get('Día', ''),
-                            'descripcion': row.get('Descripción', ''),
-                            'categoria': row.get('Categoría', ''),
-                            'subcategoria': row.get('Subcategoría', ''),
-                            'zona': row.get('Zona', ''),
-                            # No 'cant_tarjetas', 'cargos_abonos', 'archivo', 'cedula_TC' as per new model
-                        }
-
-                        # Check for existing transaction to avoid duplicates on re-import
-                        lookup_fields = {
-                            'person': person_obj,
-                            'fecha_transaccion': card_data['fecha_transaccion'],
-                            'valor_original': card_data['valor_original']
-                        }
-                        if card_data['numero_autorizacion'] and card_data['numero_autorizacion'] != 'Sin transacciones':
-                            lookup_fields['numero_autorizacion'] = card_data['numero_autorizacion']
-                        else:
-                            # If no auth number, try to use description to make it somewhat unique
-                            lookup_fields['descripcion'] = card_data['descripcion']
-
-                        lookup_fields = {k: v for k, v in lookup_fields.items() if v is not None}
-
-
-                        try:
-                            obj, created = CreditCard.objects.update_or_create( # Changed to CreditCard
-                                defaults=card_data,
-                                **lookup_fields
-                            )
-                            if created:
-                                transactions_created += 1
-                            else:
-                                transactions_updated += 1
-                        except Exception as e:
-                            messages.error(request, f"Error saving transaction row {index} for {cedula}: {e}", extra_tags='import_tcs')
-                            print(f"Error saving transaction row {index} for {cedula}: {e} - Data: {card_data}")
-
-                    messages.success(request, f'Datos de extractos cargados a la base de datos. {transactions_created} creados, {transactions_updated} actualizados.', extra_tags='import_tcs')
-
-                messages.success(request, f'Se procesaron {files_saved} archivos PDF de extractos.', extra_tags='import_tcs')
-            except Exception as e:
-                messages.error(request, f'Error durante el procesamiento de los PDFs de extractos: {e}', extra_tags='import_tcs')
-        else:
-            messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
-
-    return redirect('import_page')
-
-
 # View for displaying Credit Card Transactions
 class CreditCardTransactionsView(LoginRequiredMixin, TemplateView):
     template_name = 'tcs.html'
@@ -854,7 +706,7 @@ class CreditCardTransactionsView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
 
         # Retrieve all credit card transactions, selecting related Person data
-        transactions = CreditCard.objects.select_related('person').all().order_by('fecha_transaccion', 'person__nombre')
+        transactions = CreditCard.objects.select_related('person').all().order_by('fecha_transaccion', 'person__nombre_completo')
 
         context['transactions'] = transactions
         return context
@@ -1015,7 +867,7 @@ def import_conflicts(request):
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            subprocess.run(['python3', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
+            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
 
             import pandas as pd
             from core.models import Person, Conflict
@@ -1658,16 +1510,16 @@ def import_finances(request):
             # Run the analysis scripts in sequence
             try:
                 # Run cats.py analysis
-                subprocess.run(['python3', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run nets.py analysis
-                subprocess.run(['python3', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run trends.py analysis
-                subprocess.run(['python3', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run idTrends.py analysis
-                subprocess.run(['python3', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # After idTrends.py generates idTrends.xlsx, import the data into the FinancialReport model
                 import_financial_reports(request) # Call the new import function
@@ -1791,8 +1643,7 @@ def delete_comment(request, cedula, comment_index):
     
     return redirect('person_details', cedula=cedula)
 
-
-# Corrected import_tcs function
+# Updated import_tcs function
 def import_tcs(request):
     if request.method == 'POST':
         pdf_files = request.FILES.getlist('visa_pdf_files')
@@ -1804,6 +1655,7 @@ def import_tcs(request):
 
         input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
         output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+        tcs_excel_path = os.path.join(output_excel_dir, "tcs.xlsx") # Path to the output Excel
 
         os.makedirs(input_pdf_dir, exist_ok=True) # Ensure input directory exists
 
@@ -1825,20 +1677,95 @@ def import_tcs(request):
 
         if files_saved > 0:
             try:
-                # Set the password in tcs module
                 tcs.pdf_password = pdf_password
-
-                # Call the tcs.run_pdf_processing with necessary arguments
                 tcs.run_pdf_processing(settings.BASE_DIR, input_pdf_dir, output_excel_dir)
+
+                # --- NEW LOGIC: Load tcs.xlsx into CreditCard model ---
+                if os.path.exists(tcs_excel_path):
+                    df_tcs = pd.read_excel(tcs_excel_path)
+                    transactions_created = 0
+                    transactions_updated = 0
+
+                    for index, row in df_tcs.iterrows():
+                        cedula = row.get('Cedula') # Get Cedula from the DataFrame row
+                        if pd.isna(cedula) or cedula == '':
+                            print(f"Skipping row {index}: Missing Cedula for transaction {row.get('Descripción')}")
+                            continue
+
+                        # Find or create the Person.
+                        person_obj, created = Person.objects.get_or_create(
+                            cedula=str(cedula), # Ensure cedula is a string for CharField
+                            defaults={
+                                'nombre_completo': row.get('Tarjetahabiente', ''),
+                                'cargo': row.get('CARGO', ''),
+                                'compania': '',
+                                'area': ''
+                            }
+                        )
+                        if created:
+                            print(f"Created new Person: {person_obj.cedula}")
+
+
+                        # Prepare data for CreditCard
+                        # Note: We use .get() with a default empty string for robustness against missing columns in Excel
+                        card_data = {
+                            'person': person_obj,
+                            'tipo_tarjeta': row.get('Tipo de Tarjeta', ''),
+                            'numero_tarjeta': str(row.get('Número de Tarjeta', '')),
+                            'moneda': row.get('Moneda', ''),
+                            'trm_cierre': str(row.get('TRM Cierre', '')),
+                            'valor_original': str(row.get('Valor Original', '')),
+                            'valor_cop': str(row.get('Valor COP', '')),
+                            'numero_autorizacion': str(row.get('Número de Autorización', '')),
+                            'fecha_transaccion': pd.to_datetime(row.get('Fecha de Transacción'), errors='coerce').date() if pd.notna(row.get('Fecha de Transacción')) else None,
+                            'dia': row.get('Día', ''),
+                            'descripcion': row.get('Descripción', ''),
+                            'categoria': row.get('Categoría', ''),
+                            'subcategoria': row.get('Subcategoría', ''),
+                            'zona': row.get('Zona', ''),
+                            # No 'cant_tarjetas', 'cargos_abonos', 'archivo', 'cedula_TC' as per new model
+                        }
+
+                        # Check for existing transaction to avoid duplicates on re-import
+                        lookup_fields = {
+                            'person': person_obj,
+                            'fecha_transaccion': card_data['fecha_transaccion'],
+                            'valor_original': card_data['valor_original']
+                        }
+                        if card_data['numero_autorizacion'] and card_data['numero_autorizacion'] != 'Sin transacciones':
+                            lookup_fields['numero_autorizacion'] = card_data['numero_autorizacion']
+                        else:
+                            # If no auth number, try to use description to make it somewhat unique
+                            lookup_fields['descripcion'] = card_data['descripcion']
+
+                        lookup_fields = {k: v for k, v in lookup_fields.items() if v is not None}
+
+
+                        try:
+                            obj, created = CreditCard.objects.update_or_create( # Changed to CreditCard
+                                defaults=card_data,
+                                **lookup_fields
+                            )
+                            if created:
+                                transactions_created += 1
+                            else:
+                                transactions_updated += 1
+                        except Exception as e:
+                            messages.error(request, f"Error saving transaction row {index} for {cedula}: {e}", extra_tags='import_tcs')
+                            print(f"Error saving transaction row {index} for {cedula}: {e} - Data: {card_data}")
+
+                    messages.success(request, f'Datos de extractos cargados a la base de datos. {transactions_created} creados, {transactions_updated} actualizados.', extra_tags='import_tcs')
+
                 messages.success(request, f'Se procesaron {files_saved} archivos PDF de extractos.', extra_tags='import_tcs')
             except Exception as e:
                 messages.error(request, f'Error durante el procesamiento de los PDFs de extractos: {e}', extra_tags='import_tcs')
         else:
             messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
 
-    return redirect('import_page') # Redirect back to the import page
+    return redirect('import_page')
 
-# --- New function for handling categorias.xlsx upload (from previous response) ---
+
+# Function for handling categorias.xlsx upload
 def import_categorias(request):
     if request.method == 'POST':
         if 'categorias_excel_file' in request.FILES:
@@ -1861,7 +1788,7 @@ def import_categorias(request):
                 messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
         else:
             messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
-    return redirect('import_page') 
+    return redirect('import_page')
 "@
 
 # Create core/conflicts.py
@@ -5770,7 +5697,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=person__compania&sort_direction={% if current_order == 'person__compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Compañia
+                                Compania
                             </a>
                         </th>
                         <th>
@@ -5815,10 +5742,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </th>
                         <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=fecha_transaccion&sort_direction={% if current_order == 'fecha_transaccion' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
-                                Fecha de Transacción
+                                Fecha de Transaccion
                             </a>
                         </th>
-                        <th>
+                        <th>deta
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=dia&sort_direction={% if current_order == 'dia' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Dia
                             </a>
@@ -5847,9 +5774,8 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     </tr>
                 </thead>
                 <tbody>
-                    {% for transaction in tcs_transactions %}
+                    {% for transaction in transactions %}
                         <tr>
-                            {# Data from Person model #}
                             <td>{{ transaction.person.nombre_completo|default:"N/A" }}</td>
                             <td>{{ transaction.person.cargo|default:"N/A" }}</td>
                             <td>{{ transaction.person.compania|default:"N/A" }}</td>
@@ -7002,9 +6928,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
+    <!--
     <a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
         <i class="fas fa-pencil-alt"></i>
-    </a>
+    </a>-->
     <a href="/" class="btn btn-custom-primary">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
@@ -7051,7 +6978,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <table class="table">
                     <tr>
                         <th>ID:</th>
-                        <td>{{ myperson.cedula }}</td>
+                        <td>{{ myperson.cedula|floatformat:"0" }}</td>
                     </tr>
                     <tr>
                         <th>Nombre:</th>
@@ -7721,17 +7648,17 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 "@
 
     # Run migrations
-    python3 manage.py makemigrations core
-    python3 manage.py migrate
+    python manage.py makemigrations core
+    python manage.py migrate
 
     # Create superuser
-    #python3 manage.py createsuperuser
+    #python manage.py createsuperuser
 
-    python3 manage.py collectstatic --noinput
+    python manage.py collectstatic --noinput
 
     # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
-    python3 manage.py runserver
+    python manage.py runserver
 }
 
 arpa
