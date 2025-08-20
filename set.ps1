@@ -5977,19 +5977,18 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     </tr>
                 </thead>
                 <tbody>
-                    {% for transaction in transactions %}
+                    {% for transaction in page_obj %}
                         <tr>
                             <td>{{ transaction.person.nombre_completo|default:"N/A" }}</td>
                             <td>{{ transaction.person.cargo|default:"N/A" }}</td>
                             <td>{{ transaction.person.compania|default:"N/A" }}</td>
                             <td>{{ transaction.person.area|default:"N/A" }}</td>
-                            {# Data from CreditCard model and others #}
-                            <td>{{ transaction.tipo_tarjeta|default:"N/A" }}</td>
-                            <td>{{ transaction.numero_tarjeta|default:"N/A" }}</td>
-                            <td>{{ transaction.moneda|default:"N/A" }}</td>
-                            <td>{{ transaction.trm_cierre|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ transaction.valor_original|default:"N/A"|floatformat:2 }}</td>
-                            <td>{{ transaction.valor_cop|default:"N/A"|floatformat:2 }}</td>
+                            <td>{{ transaction.tipo_tarjeta }}</td>
+                            <td>{{ transaction.numero_tarjeta }}</td>
+                            <td>{{ transaction.moneda }}</td>
+                            <td>{{ transaction.trm_cierre }}</td>
+                            <td>{{ transaction.valor_original }}</td>
+                            <td>{{ transaction.valor_cop }}</td>
                             <td>{{ transaction.numero_autorizacion|default:"N/A" }}</td>
                             <td>{{ transaction.fecha_transaccion|date:"Y-m-d"|default:"N/A" }}</td>
                             <td>{{ transaction.dia|default:"N/A" }}</td>
@@ -6300,7 +6299,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="1"></th>
                         <th data-column-index="2"></th>
                         <th data-column-index="3">Medio</th>
-                        <th data-column-index="4">">="</th>
+                        <th data-column-index="4"></th>
                         <th style="background-color: green; " data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th style="background-color: green;  color: white;" data-column-index="7">1.5</th>
@@ -6338,7 +6337,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         <th data-column-index="1"></th>
                         <th data-column-index="2"></th>
                         <th data-column-index="3">Alto</th>
-                        <th data-column-index="4">">"</th>
+                        <th data-column-index="4"></th>
                         <th style="background-color: red;" data-column-index="5"></th>
                         <th data-column-index="6"></th>
                         <th style="background-color: red; color: white;" data-column-index="7">2</th>
