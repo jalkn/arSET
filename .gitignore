@@ -12,3 +12,6 @@ run.ps1
 mcs.py
 visa.py
 files/
+personas.py
+Personas.xlsx
+cedulas.xlsx

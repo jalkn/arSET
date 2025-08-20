@@ -448,6 +448,7 @@ class FinancialReportAdmin(admin.ModelAdmin):
 
 # Create urls.py for core app
 Set-Content -Path "core/urls.py" -Value @"
+# urls.py
 from django.contrib.auth import views as auth_views
 from django.urls import path
 from . import views
@@ -459,7 +460,8 @@ from django.contrib.auth import views as auth_views
 from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
-                   export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs, import_categorias)
+                   export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs, import_categorias,
+                   tcs_list) 
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -492,27 +494,26 @@ def register_superuser(request):
     return render(request, 'registration/register.html')
 
 urlpatterns = [
-    path('', views.main, name='main'),
-    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('', main, name='main'),
+    path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('register/', register_superuser, name='register'),
     path('import/', ImportView.as_view(), name='import'),
-    path('import-persons/', views.import_persons, name='import_persons'),
-    path('import-conflicts/', views.import_conflicts, name='import_conflicts'),
-    path('import-tcs/', views.import_tcs, name='import_tcs'),
-    path('persons/', views.person_list, name='person_list'),
-    path('persons/export/excel/', views.export_persons_excel, name='export_persons_excel'), 
-    path('conflicts/', views.conflict_list, name='conflict_list'),
-    path('financial-reports/', views.financial_report_list, name='financial_report_list'),
-    path('import-finances/', views.import_finances, name='import_finances'),
-    path('persons/<str:cedula>/', views.person_details, name='person_details'),
-    path('alerts/', views.alerts_list, name='alerts_list'),
-    path('toggle-revisar/<str:cedula>/', views.toggle_revisar_status, name='toggle_revisar_status'),
-    path('person/<str:cedula>/save_comment/', views.save_comment, name='save_comment'),
-    path('person/<str:cedula>/delete_comment/<int:comment_index>/', views.delete_comment, name='delete_comment'),
-    path('import/', ImportView.as_view(), name='import_page'), 
-    path('import-categorias/', views.import_categorias, name='import_categorias'),
-    path('import_tcs/', views.import_tcs, name='import_tcs'),
-    path('tcs_data/', views.CreditCardTransactionsView.as_view(), name='tcs_data'),
+    path('import/persons/', import_persons, name='import_persons'),
+    path('import/conflicts/', import_conflicts, name='import_conflicts'),
+    path('import/finances/', import_finances, name='import_finances'),
+    path('import/tcs/', import_tcs, name='import_tcs'),
+    path('import/categorias/', import_categorias, name='import_categorias'),
+    path('persons/', person_list, name='person_list'),
+    path('persons/<str:cedula>/', person_details, name='person_details'),
+    path('persons/export/excel/', export_persons_excel, name='export_persons_excel'),
+    path('financial_reports/', financial_report_list, name='financial_report_list'),
+    path('alerts/', alerts_list, name='alerts_list'),
+    path('persons/<str:cedula>/toggle_revisar/', views.toggle_revisar_status, name='toggle_revisar_status'),
+    path('persons/<str:cedula>/save_comment/', save_comment, name='save_comment'),
+    path('persons/<str:cedula>/delete_comment/', delete_comment, name='delete_comment'),
+    path('conflicts/', conflict_list, name='conflict_list'),
+    path('tcs/', tcs_list, name='tcs_list'), 
 ]
 "@
 
@@ -697,19 +698,168 @@ class ImportView(LoginRequiredMixin, TemplateView):
         context['analysis_results'] = analysis_results
         return context
 
+@login_required
+def tcs_list(request):
+    """
+    Function-based view to display credit card transactions from tcs.xlsx.
+    """
+    context = {}
+    core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
+    tcs_excel_path = os.path.join(core_src_dir, 'tcs.xlsx')
+    personas_excel_path = os.path.join(core_src_dir, 'Personas.xlsx') # Assuming Personas.xlsx is also in core/src
 
-# View for displaying Credit Card Transactions
-class CreditCardTransactionsView(LoginRequiredMixin, TemplateView):
-    template_name = 'tcs.html'
+    transactions_list = []
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+    print(f"DEBUG: Checking for tcs.xlsx at {tcs_excel_path}")
+    if os.path.exists(tcs_excel_path):
+        try:
+            # Read tcs.xlsx
+            tcs_df = pd.read_excel(tcs_excel_path)
+            print(f"DEBUG: tcs_df loaded. Shape: {tcs_df.shape}")
+            print(f"DEBUG: tcs_df columns RAW: {tcs_df.columns.tolist()}")
 
-        # Retrieve all credit card transactions, selecting related Person data
-        transactions = CreditCard.objects.select_related('person').all().order_by('fecha_transaccion', 'person__nombre_completo')
+            # Standardize tcs_df column names for internal use (remove accents, lowercase, replace spaces with underscores)
+            # This is a more robust way to handle special characters for column access
+            tcs_df.columns = [col.strip().lower().replace(' ', '_').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('.', '') for col in tcs_df.columns]
+            print(f"DEBUG: tcs_df columns STANDARDIZED: {tcs_df.columns.tolist()}")
 
-        context['transactions'] = transactions
-        return context
+            # Read Personas.xlsx (if exists)
+            personas_df = pd.DataFrame()
+            print(f"DEBUG: Checking for Personas.xlsx at {personas_excel_path}")
+            if os.path.exists(personas_excel_path):
+                try:
+                    personas_df = pd.read_excel(personas_excel_path)
+                    print(f"DEBUG: personas_df loaded. Shape: {personas_df.shape}")
+                    print(f"DEBUG: personas_df columns RAW: {personas_df.columns.tolist()}")
+                    personas_df.columns = [col.strip().lower().replace(' ', '_').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('.', '') for col in personas_df.columns]
+                    print(f"DEBUG: personas_df columns STANDARDIZED: {personas_df.columns.tolist()}")
+                    
+                    if 'cedula' in personas_df.columns:
+                        personas_df['cedula'] = personas_df['cedula'].astype(str)
+                        print("DEBUG: Personas 'cedula' column converted to string.")
+                    else:
+                        print("WARNING: 'cedula' column not found in Personas.xlsx.")
+                        
+                except Exception as e:
+                    messages.warning(request, f"Error loading Personas.xlsx for joining: {e}")
+                    print(f"ERROR: Loading Personas.xlsx: {e}")
+            else:
+                messages.warning(request, "Personas.xlsx not found. Person details might be missing.")
+                print("WARNING: Personas.xlsx not found.")
+
+            # Ensure 'cedula' column is string type in tcs_df before merge
+            if 'cedula' in tcs_df.columns:
+                tcs_df['cedula'] = tcs_df['cedula'].astype(str)
+                print("DEBUG: tcs_df 'cedula' column converted to string.")
+            else:
+                print("WARNING: 'cedula' column not found in tcs_df. Cannot merge with Personas data.")
+                # If 'cedula' is missing in tcs_df, proceed without person data merge
+                merged_df = tcs_df.copy()
+                merged_df['nombre_completo'] = None
+                merged_df['cargo'] = None
+                merged_df['compania'] = None
+                print("DEBUG: Proceeding without merging Personas data due to missing 'cedula' in tcs_df.")
+
+            # Perform merge if both DFs and 'cedula' column are present
+            if not personas_df.empty and 'cedula' in tcs_df.columns and 'cedula' in personas_df.columns:
+                # Select only the necessary columns from personas_df to avoid conflicts
+                personas_cols_to_merge = ['cedula', 'nombre_completo', 'cargo', 'compania']
+                # Filter to only include columns that actually exist in personas_df
+                existing_personas_cols = [col for col in personas_cols_to_merge if col in personas_df.columns]
+
+                merged_df = pd.merge(tcs_df, personas_df[existing_personas_cols],
+                                     on='cedula', how='left', suffixes=('', '_person'))
+                print(f"DEBUG: DataFrames merged successfully. Merged_df shape: {merged_df.shape}")
+                print(f"DEBUG: Merged_df columns AFTER MERGE: {merged_df.columns.tolist()}")
+                print(f"DEBUG: First 5 rows of merged_df:\n{merged_df.head()}")
+            else:
+                # If merge cannot happen, use tcs_df as is and add placeholder columns
+                merged_df = tcs_df.copy()
+                if 'nombre_completo' not in merged_df.columns: merged_df['nombre_completo'] = None
+                if 'cargo' not in merged_df.columns: merged_df['cargo'] = None
+                if 'compania' not in merged_df.columns: merged_df['compania'] = None
+                print("WARNING: Merge skipped (personas_df empty or 'cedula' column missing). Merged_df is a copy of tcs_df.")
+                print(f"DEBUG: Merged_df (unmerged) columns: {merged_df.columns.tolist()}")
+
+
+            # Map standardized Excel columns to dictionary keys for the template
+            for index, row in merged_df.iterrows():
+                # Robust date parsing
+                fecha_transaccion_raw = row.get('fecha_de_transaccion', None)
+                if pd.isna(fecha_transaccion_raw): # Check for pandas NaN values
+                    fecha_transaccion = None
+                else:
+                    try:
+                        # Try converting to datetime if it's already a datetime object or string
+                        if isinstance(fecha_transaccion_raw, datetime):
+                            fecha_transaccion = fecha_transaccion_raw.date() # Get only date part
+                        else:
+                            # Attempt to parse common date formats if it's a string
+                            fecha_transaccion = pd.to_datetime(str(fecha_transaccion_raw)).date()
+                    except ValueError:
+                        fecha_transaccion = None # If parsing fails, set to None
+
+                person_data = {
+                    'cedula': row.get('cedula', ''), # Ensure cedula is always present for URL reversal
+                    'nombre_completo': row.get('nombre_completo', 'N/A'),
+                    'cargo': row.get('cargo', 'N/A'),
+                    'compania': row.get('compania', 'N/A'),
+                }
+                
+                transaction = {
+                    'person': person_data,
+                    # Map standardized Excel column names (from tcs.xlsx columns list) to desired keys
+                    'tipo_tarjeta': row.get('tipo_de_tarjeta', 'N/A'),
+                    'numero_tarjeta': row.get('numero_de_tarjeta', 'N/A'),
+                    'moneda': row.get('moneda', 'N/A'),
+                    'trm_cierre': row.get('trm_cierre', 'N/A'),
+                    'valor_original': row.get('valor_original', 'N/A'),
+                    'valor_cop': row.get('valor_cop', 'N/A'),
+                    'numero_autorizacion': row.get('numero_de_autorizacion', 'N/A'),
+                    'fecha_transaccion': fecha_transaccion, # Use the parsed date
+                    'dia': row.get('dia', 'N/A'),
+                    'descripcion': row.get('descripcion', 'N/A'),
+                    'categoria': row.get('categoria', 'N/A'),
+                    'subcategoria': row.get('subcategoria', 'N/A'),
+                    'zona': row.get('zona', 'N/A'),
+                    'tasa_pactada': row.get('tasa_pactada', 'N/A'), # Added
+                    'tasa_ea_facturada': row.get('tasa_ea_facturada', 'N/A'), # Added
+                    'cargos_y_abonos': row.get('cargos_y_abonos', 'N/A'), # Added
+                    'saldo_a_diferir': row.get('saldo_a_diferir', 'N/A'), # Added
+                    'cuotas': row.get('cuotas', 'N/A'), # Added
+                    'pagina': row.get('pagina', 'N/A'), # Added
+                    'tar_x_per': row.get('tar_x_per', 'N/A'), # Added for 'Tar. x Per.'
+                    'archivo': row.get('archivo', 'N/A'), # Added for 'Archivo'
+                }
+                transactions_list.append(transaction)
+            
+            print(f"DEBUG: Total transactions in transactions_list: {len(transactions_list)}")
+            if transactions_list:
+                print(f"DEBUG: First transaction in list: {transactions_list[0]}")
+                print(f"DEBUG: Cedula for first transaction: {transactions_list[0].get('person', {}).get('cedula', 'N/A')}")
+                print(f"DEBUG: Fecha_transaccion for first transaction: {transactions_list[0].get('fecha_transaccion', 'N/A')}")
+            else:
+                print("DEBUG: transactions_list is empty.")
+
+            paginator = Paginator(transactions_list, 100)
+            page_number = request.GET.get('page')
+            page_obj = paginator.get_page(page_number)
+            
+            context['transactions'] = page_obj
+            context['page_obj'] = page_obj
+            context['paginator'] = paginator
+
+        except FileNotFoundError:
+            messages.error(request, "Error: tcs.xlsx not found in 'core/src/'. Please ensure the PDF processing has been run.")
+            print(f"ERROR: tcs.xlsx not found at {tcs_excel_path}")
+        except Exception as e:
+            messages.error(request, f"Error reading or processing tcs.xlsx: {e}")
+            print(f"CRITICAL ERROR: {e}")
+    else:
+        messages.warning(request, "tcs.xlsx not found. No transaction data to display.")
+        print(f"WARNING: tcs.xlsx does not exist.")
+
+    return render(request, 'tcs.html', context)
 
 @login_required
 def main(request):
@@ -1682,19 +1832,31 @@ def import_tcs(request):
 
                 # --- NEW LOGIC: Load tcs.xlsx into CreditCard model ---
                 if os.path.exists(tcs_excel_path):
-                    df_tcs = pd.read_excel(tcs_excel_path)
+                    # Force 'Cedula' column to be read as string to prevent float interpretation
+                    df_tcs = pd.read_excel(tcs_excel_path, dtype={'Cedula': str})
                     transactions_created = 0
                     transactions_updated = 0
 
+                    # --- NEW: Define clean_cedula_format locally for views.py ---
+                    def clean_cedula_format(value):
+                        try:
+                            if isinstance(value, float) and value.is_integer():
+                                return str(int(value))
+                            return str(value)
+                        except (ValueError, TypeError):
+                            return str(value)
+
                     for index, row in df_tcs.iterrows():
-                        cedula = row.get('Cedula') # Get Cedula from the DataFrame row
-                        if pd.isna(cedula) or cedula == '':
-                            print(f"Skipping row {index}: Missing Cedula for transaction {row.get('Descripción')}")
+                        raw_cedula = row.get('Cedula') # Get Cedula from the DataFrame row
+                        cleaned_cedula = clean_cedula_format(raw_cedula) # Apply cleaning here
+
+                        if pd.isna(cleaned_cedula) or cleaned_cedula == '':
+                            print(f"Skipping row {index}: Missing or invalid Cedula for transaction {row.get('Descripción')}")
                             continue
 
                         # Find or create the Person.
                         person_obj, created = Person.objects.get_or_create(
-                            cedula=str(cedula), # Ensure cedula is a string for CharField
+                            cedula=cleaned_cedula, # Use the cleaned cedula
                             defaults={
                                 'nombre_completo': row.get('Tarjetahabiente', ''),
                                 'cargo': row.get('CARGO', ''),
@@ -1705,9 +1867,6 @@ def import_tcs(request):
                         if created:
                             print(f"Created new Person: {person_obj.cedula}")
 
-
-                        # Prepare data for CreditCard
-                        # Note: We use .get() with a default empty string for robustness against missing columns in Excel
                         card_data = {
                             'person': person_obj,
                             'tipo_tarjeta': row.get('Tipo de Tarjeta', ''),
@@ -1751,8 +1910,8 @@ def import_tcs(request):
                             else:
                                 transactions_updated += 1
                         except Exception as e:
-                            messages.error(request, f"Error saving transaction row {index} for {cedula}: {e}", extra_tags='import_tcs')
-                            print(f"Error saving transaction row {index} for {cedula}: {e} - Data: {card_data}")
+                            messages.error(request, f"Error saving transaction row {index} for {cleaned_cedula}: {e}", extra_tags='import_tcs')
+                            print(f"Error saving transaction row {index} for {cleaned_cedula}: {e} - Data: {card_data}")
 
                     messages.success(request, f'Datos de extractos cargados a la base de datos. {transactions_created} creados, {transactions_updated} actualizados.', extra_tags='import_tcs')
 
@@ -1762,7 +1921,7 @@ def import_tcs(request):
         else:
             messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
 
-    return redirect('import_page')
+    return redirect('import')
 
 
 # Function for handling categorias.xlsx upload
@@ -1788,7 +1947,7 @@ def import_categorias(request):
                 messages.error(request, f'Error al importar el archivo de categorías: {e}', extra_tags='import_categorias')
         else:
             messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
-    return redirect('import_page')
+    return redirect('import')
 "@
 
 # Create core/conflicts.py
@@ -3318,6 +3477,8 @@ def load_cedulas_data(base_dir):
             cedulas_df = pd.read_excel(cedulas_file)
             # Changed column check and conversion to 'NOMBRE COMPLETO' and 'CARGO'
             if 'NOMBRE COMPLETO' in cedulas_df.columns and 'Cedula' in cedulas_df.columns and 'CARGO' in cedulas_df.columns:
+                # Apply the clean_cedula_format to the 'Cedula' column upon loading
+                cedulas_df['Cedula'] = cedulas_df['Cedula'].apply(clean_cedula_format)
                 cedulas_df['NOMBRE COMPLETO'] = cedulas_df['NOMBRE COMPLETO'].astype(str).str.title().str.strip()
                 cedulas_loaded = True
                 print(f"✅ Personas file '{cedulas_file}' loaded successfully.")
@@ -3327,6 +3488,18 @@ def load_cedulas_data(base_dir):
             print(f"⚠️ Error loading Personas file '{cedulas_file}': {e}. Personas data will not be available.")
     else:
         print(f"⚠️ Personas file '{cedulas_file}' not found. Personas data will not be available.")
+
+# --- NEW: Function to clean Cedula format (e.g., 123.0 to 123) ---
+def clean_cedula_format(value):
+    try:
+        # If it's a float that represents an integer (e.g., 123.0)
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value)) # Convert to int, then to string
+        # For any other type (string, non-integer float, etc.), convert to string and return as is
+        return str(value)
+    except (ValueError, TypeError):
+        # Handles cases where conversion isn't straightforward (e.g., NaN)
+        return str(value) # Ensure it's a string even if it's NaN or an unhandled type
 
 
 # --- Regex for MC (from mc.py) ---
@@ -3632,21 +3805,45 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
         # Merge with cedulas_df (now Personas.xlsx) if loaded
         if cedulas_loaded:
             print("Merging all results with Personas.xlsx...")
-            # Changed 'Tarjetahabiente' to 'NOMBRE COMPLETO' for the join key on cedulas_df
-            # Removed 'Tipo' and kept 'Cedula' and 'CARGO'
-            df_resultado_final = pd.merge(df_resultado_final, cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO']],
-                                    left_on='Tarjetahabiente', # Left DF still has this column
-                                    right_on='NOMBRE COMPLETO', # Right DF has this column
-                                    how='left')
-            # After merge, if 'NOMBRE COMPLETO' is the key from the right table, we might have duplicate person names
-            # If so, and we want to keep one, consider using .drop_duplicates() on the Personas.xlsx dataframe
-            # before merging or handle potential NaNs from non-matches after the merge.
+            # Ensure the 'Cedula' column in df_resultado_final is also clean before merge
+            # This is crucial for accurate merging when Personas.xlsx has already been cleaned.
+            if 'Cedula' in cedulas_df.columns: # Check if 'Cedula' exists in the loaded Personas.xlsx
+                # Temporarily add a 'Cedula_PDF' column to df_resultado_final to store the cleaned Cedula from Personas.xlsx
+                # This ensures we get the *correctly formatted* Cedula from Personas.xlsx during the merge.
+                # We'll use 'Tarjetahabiente' as the join key as that's what's derived from PDFs.
+                temp_merge_df = pd.merge(
+                    df_resultado_final,
+                    cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO']],
+                    left_on='Tarjetahabiente',
+                    right_on='NOMBRE COMPLETO',
+                    how='left',
+                    suffixes=('', '_from_personas') # Suffix to avoid column name conflicts
+                )
 
-            # Drop the redundant 'NOMBRE COMPLETO' column from the merge result, keeping 'Tarjetahabiente'
-            # Or rename 'NOMBRE COMPLETO' to 'Tarjetahabiente' if preferred.
-            # For simplicity, let's keep 'Tarjetahabiente' as the primary person identifier from PDFs.
-            if 'NOMBRE COMPLETO' in df_resultado_final.columns and 'Tarjetahabiente' in df_resultado_final.columns and 'NOMBRE COMPLETO' != 'Tarjetahabiente':
-                 df_resultado_final.drop(columns=['NOMBRE COMPLETO'], errors='ignore', inplace=True)
+                # Now, transfer the cleaned 'Cedula' from Personas.xlsx to the main DataFrame
+                # If a match was found, use the 'Cedula_from_personas', otherwise, keep the existing (or empty) 'Cedula'
+                # If 'Cedula' doesn't exist in df_resultado_final yet, create it.
+                if 'Cedula' not in df_resultado_final.columns:
+                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna('') # Use Cedula from Personas.xlsx
+                else:
+                    # If 'Cedula' already exists in df_resultado_final (e.g., from PDF parsing),
+                    # prioritize the one from Personas.xlsx if a match was found.
+                    df_resultado_final['Cedula'] = temp_merge_df['Cedula_from_personas'].fillna(df_resultado_final['Cedula'])
+
+                # Transfer 'CARGO' as well
+                if 'CARGO' not in df_resultado_final.columns:
+                     df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna('')
+                else:
+                     df_resultado_final['CARGO'] = temp_merge_df['CARGO_from_personas'].fillna(df_resultado_final['CARGO'])
+
+                # Drop the temporary merge column if it was created
+                if 'NOMBRE COMPLETO_from_personas' in temp_merge_df.columns:
+                    temp_merge_df.drop(columns=['NOMBRE COMPLETO_from_personas'], errors='ignore', inplace=True)
+
+            else:
+                print("WARNING: 'Cedula' column not found in Personas.xlsx during merge in tcs.py.")
+                df_resultado_final['Cedula'] = ''
+                df_resultado_final['CARGO'] = ''
 
         else:
             # Add empty columns if Personas.xlsx was not loaded
@@ -3690,6 +3887,12 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
         # Filter to only include columns that actually exist in the DataFrame
         # This loop also ensures the order is maintained based on ordered_columns
         df_resultado_final = df_resultado_final[[col for col in ordered_columns if col in df_resultado_final.columns]]
+
+        # --- IMPORTANT: Apply final Cedula formatting before saving to Excel ---
+        # This ensures the 'Cedula' column in the output tcs.xlsx is consistently formatted
+        if 'Cedula' in df_resultado_final.columns:
+            df_resultado_final['Cedula'] = df_resultado_final['Cedula'].apply(clean_cedula_format)
+
 
         # Change the filename to a static name instead of a timestamp
         archivo_salida_unificado = "tcs.xlsx"
@@ -4284,7 +4487,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_data' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -5615,7 +5818,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% load static %}
 
 {% block title %}Tarjetas{% endblock %}
-{% block navbar_title %}Tarjetas{% endblock %}
+{% block navbar_title %}Tarjetas de Credito{% endblock %}
 
 {% block navbar_buttons %}
 <div>
@@ -5795,11 +5998,15 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ transaction.subcategoria|default:"N/A" }}</td>
                             <td>{{ transaction.zona|default:"N/A" }}</td>
                             <td class="table-fixed-column">
-                                <a href="{% url 'person_details' transaction.person.cedula %}" 
-                                   class="btn btn-custom-primary btn-sm"
-                                   title="View person details">
-                                    <i class="bi bi-person-vcard-fill"></i>
-                                </a>
+                                {% if transaction.person and transaction.person.cedula %}
+                                    <a href="{% url 'person_details' transaction.person.cedula %}"
+                                    class="btn btn-custom-primary btn-sm"
+                                    title="View person details">
+                                        <i class="bi bi-person-vcard-fill"></i>
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">No person data</span>
+                                {% endif %}
                             </td>
                         </tr>
                     {% empty %}
