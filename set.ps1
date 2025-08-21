@@ -892,6 +892,7 @@ def main(request):
         'active_person_count': Person.objects.filter(estado='Activo').count(),
         # Count for retired persons
         'retired_person_count': Person.objects.filter(estado='Retirado').count(),
+        'tc_count': CreditCard.objects.count(),
     }
 
     return render(request, 'home.html', context)
@@ -4539,16 +4540,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </div>
             </a>
         </div>
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'person_list' %}?status=Retirado" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-user-times fa-3x text-secondary mb-2"></i> {# Icon for retired person #}
-                    <h5 class="card-title mb-1">Personas Retiradas</h5>
-                    <h2 class="card-text">{{ retired_person_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-
         <!-- Div for Conflict count -->
         <div class="col-md-3 mb-4">
             <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
@@ -4570,6 +4561,15 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </div>
             </a>
         </div>
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'tcs_list' %}" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="far fa-credit-card fa-3x text-info"></i>
+                    <h5 class="mb-2">Tarjetas de Credito</h5>
+                    <h2 class="card-text">{{ tc_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
     </div>
 
     <!-- Second row for more specific cards -->
@@ -4583,6 +4583,15 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </div>
             </a>
         </div>
+        <div class="col-md-3 mb-4">
+            <a href="{% url 'person_list' %}?status=Retirado" class="card h-100 text-decoration-none text-dark">
+                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
+                    <i class="fas fa-user-times fa-3x text-secondary mb-2"></i> {# Icon for retired person #}
+                    <h5 class="card-title mb-1">Personas Retiradas</h5>
+                    <h2 class="card-text">{{ retired_person_count|intcomma }}</h2>
+                </div>
+            </a>
+        </div>
         <!-- New div for Accionista del Grupo count, with corrected link -->
         <div class="col-md-3 mb-4">
             <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
@@ -4590,16 +4599,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     <i class="fas fa-handshake fa-3x text-success mb-2"></i>
                     <h5 class="card-title mb-1">Accionista del Grupo</h5>
                     <h2 class="card-text">{{ accionista_grupo_count|intcomma }}</h2> 
-                </div>
-            </a>
-        </div>
-        <!-- New div for Aum. Pat. Subito > 2 -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'financial_report_list' %}?column=aum_pat_subito&operator=%3E&value=2" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-arrow-alt-circle-up fa-3x text-danger mb-2"></i>
-                    <h5 class="card-title mb-1">Indice mayor a 2.0</h5>
-                    <h2 class="card-text">{{ aum_pat_subito_alert_count }}</h2>
                 </div>
             </a>
         </div>
@@ -4898,7 +4897,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -5170,7 +5169,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -5430,7 +5429,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -6098,7 +6097,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
         <i class="fas fa-users"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -7159,7 +7158,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
@@ -7643,7 +7642,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
