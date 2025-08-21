@@ -713,13 +713,12 @@ def tcs_list(request):
     print(f"DEBUG: Checking for tcs.xlsx at {tcs_excel_path}")
     if os.path.exists(tcs_excel_path):
         try:
-            # Read tcs.xlsx
-            tcs_df = pd.read_excel(tcs_excel_path)
+            # Read tcs.xlsx, forcing 'Cedula' column to be read as a string
+            tcs_df = pd.read_excel(tcs_excel_path, dtype={'Cedula': str})
             print(f"DEBUG: tcs_df loaded. Shape: {tcs_df.shape}")
             print(f"DEBUG: tcs_df columns RAW: {tcs_df.columns.tolist()}")
 
             # Standardize tcs_df column names for internal use (remove accents, lowercase, replace spaces with underscores)
-            # This is a more robust way to handle special characters for column access
             tcs_df.columns = [col.strip().lower().replace(' ', '_').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('.', '') for col in tcs_df.columns]
             print(f"DEBUG: tcs_df columns STANDARDIZED: {tcs_df.columns.tolist()}")
 
@@ -735,8 +734,9 @@ def tcs_list(request):
                     print(f"DEBUG: personas_df columns STANDARDIZED: {personas_df.columns.tolist()}")
                     
                     if 'cedula' in personas_df.columns:
-                        personas_df['cedula'] = personas_df['cedula'].astype(str)
-                        print("DEBUG: Personas 'cedula' column converted to string.")
+                        # Use the clean_cedula_format function for robust cleaning
+                        personas_df['cedula'] = personas_df['cedula'].apply(tcs.clean_cedula_format)
+                        print("DEBUG: Personas 'cedula' column cleaned and standardized.")
                     else:
                         print("WARNING: 'cedula' column not found in Personas.xlsx.")
                         
@@ -747,10 +747,10 @@ def tcs_list(request):
                 messages.warning(request, "Personas.xlsx not found. Person details might be missing.")
                 print("WARNING: Personas.xlsx not found.")
 
-            # Ensure 'cedula' column is string type in tcs_df before merge
+            # Apply the cleaning function to the 'cedula' column of tcs_df after reading
             if 'cedula' in tcs_df.columns:
-                tcs_df['cedula'] = tcs_df['cedula'].astype(str)
-                print("DEBUG: tcs_df 'cedula' column converted to string.")
+                tcs_df['cedula'] = tcs_df['cedula'].apply(tcs.clean_cedula_format)
+                print("DEBUG: tcs_df 'cedula' column cleaned and standardized.")
             else:
                 print("WARNING: 'cedula' column not found in tcs_df. Cannot merge with Personas data.")
                 # If 'cedula' is missing in tcs_df, proceed without person data merge
@@ -758,6 +758,7 @@ def tcs_list(request):
                 merged_df['nombre_completo'] = None
                 merged_df['cargo'] = None
                 merged_df['compania'] = None
+                merged_df['area'] = None
                 print("DEBUG: Proceeding without merging Personas data due to missing 'cedula' in tcs_df.")
 
             # Perform merge if both DFs and 'cedula' column are present
@@ -778,6 +779,7 @@ def tcs_list(request):
                 if 'nombre_completo' not in merged_df.columns: merged_df['nombre_completo'] = None
                 if 'cargo' not in merged_df.columns: merged_df['cargo'] = None
                 if 'compania' not in merged_df.columns: merged_df['compania'] = None
+                if 'area' not in merged_df.columns: merged_df['area'] = None
                 print("WARNING: Merge skipped (personas_df empty or 'cedula' column missing). Merged_df is a copy of tcs_df.")
                 print(f"DEBUG: Merged_df (unmerged) columns: {merged_df.columns.tolist()}")
 
@@ -804,6 +806,7 @@ def tcs_list(request):
                     'nombre_completo': row.get('nombre_completo', 'N/A'),
                     'cargo': row.get('cargo', 'N/A'),
                     'compania': row.get('compania', 'N/A'),
+                    'area': row.get('area', 'N/A'),
                 }
                 
                 transaction = {
@@ -3813,7 +3816,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                 # We'll use 'Tarjetahabiente' as the join key as that's what's derived from PDFs.
                 temp_merge_df = pd.merge(
                     df_resultado_final,
-                    cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO']],
+                    cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO', 'AREA']],
                     left_on='Tarjetahabiente',
                     right_on='NOMBRE COMPLETO',
                     how='left',
@@ -3828,27 +3831,35 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                 else:
                     # If 'Cedula' already exists in df_resultado_final (e.g., from PDF parsing),
                     # prioritize the one from Personas.xlsx if a match was found.
-                    df_resultado_final['Cedula'] = temp_merge_df['Cedula_from_personas'].fillna(df_resultado_final['Cedula'])
+                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna(df_resultado_final['Cedula'])
 
                 # Transfer 'CARGO' as well
                 if 'CARGO' not in df_resultado_final.columns:
-                     df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna('')
+                    df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna('')
                 else:
-                     df_resultado_final['CARGO'] = temp_merge_df['CARGO_from_personas'].fillna(df_resultado_final['CARGO'])
+                    df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna(df_resultado_final['CARGO'])
+
+                # Transfer 'AREA' as well
+                if 'AREA' not in df_resultado_final.columns:
+                    df_resultado_final['AREA'] = temp_merge_df['AREA'].fillna('')
+                else:
+                    df_resultado_final['AREA'] = temp_merge_df['AREA'].fillna(df_resultado_final['AREA'])
 
                 # Drop the temporary merge column if it was created
                 if 'NOMBRE COMPLETO_from_personas' in temp_merge_df.columns:
                     temp_merge_df.drop(columns=['NOMBRE COMPLETO_from_personas'], errors='ignore', inplace=True)
-
+                    
             else:
                 print("WARNING: 'Cedula' column not found in Personas.xlsx during merge in tcs.py.")
                 df_resultado_final['Cedula'] = ''
                 df_resultado_final['CARGO'] = ''
+                df_resultado_final['AREA'] = ''
 
         else:
             # Add empty columns if Personas.xlsx was not loaded
             df_resultado_final['Cedula'] = ''
             df_resultado_final['CARGO'] = '' # Changed from 'Cargo'
+            df_resultado_final['AREA'] = ''
 
         # Define all expected columns in their desired order
         # We will dynamically build this list to ensure all columns exist before selecting them
@@ -3857,6 +3868,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
             "Cedula",
             "Tarjetahabiente",
             "CARGO",
+            "AREA", # Add the new AREA column here
             "Tipo de Tarjeta",
             "Número de Tarjeta",
             "Tar. x Per.",
@@ -5979,23 +5991,23 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <tbody>
                     {% for transaction in page_obj %}
                         <tr>
-                            <td>{{ transaction.person.nombre_completo|default:"N/A" }}</td>
-                            <td>{{ transaction.person.cargo|default:"N/A" }}</td>
-                            <td>{{ transaction.person.compania|default:"N/A" }}</td>
-                            <td>{{ transaction.person.area|default:"N/A" }}</td>
+                            <td>{{ transaction.person.nombre_completo }}</td>
+                            <td>{{ transaction.person.cargo }}</td>
+                            <td>{{ transaction.person.compania }}</td>
+                            <td>{{ transaction.person.area }}</td>
                             <td>{{ transaction.tipo_tarjeta }}</td>
                             <td>{{ transaction.numero_tarjeta }}</td>
                             <td>{{ transaction.moneda }}</td>
                             <td>{{ transaction.trm_cierre }}</td>
                             <td>{{ transaction.valor_original }}</td>
                             <td>{{ transaction.valor_cop }}</td>
-                            <td>{{ transaction.numero_autorizacion|default:"N/A" }}</td>
-                            <td>{{ transaction.fecha_transaccion|date:"Y-m-d"|default:"N/A" }}</td>
-                            <td>{{ transaction.dia|default:"N/A" }}</td>
-                            <td>{{ transaction.descripcion|default:"N/A" }}</td>
-                            <td>{{ transaction.categoria|default:"N/A" }}</td>
-                            <td>{{ transaction.subcategoria|default:"N/A" }}</td>
-                            <td>{{ transaction.zona|default:"N/A" }}</td>
+                            <td>{{ transaction.numero_autorizacion }}</td>
+                            <td>{{ transaction.fecha_transaccion|date:"Y-m-d" }}</td>
+                            <td>{{ transaction.dia }}</td>
+                            <td>{{ transaction.descripcion }}</td>
+                            <td>{{ transaction.categoria }}</td>
+                            <td>{{ transaction.subcategoria }}</td>
+                            <td>{{ transaction.zona }}</td>
                             <td class="table-fixed-column">
                                 {% if transaction.person and transaction.person.cedula %}
                                     <a href="{% url 'person_details' transaction.person.cedula %}"
