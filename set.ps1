@@ -835,6 +835,32 @@ def tcs_list(request):
                     'archivo': row.get('archivo', 'N/A'), # Added for 'Archivo'
                 }
                 transactions_list.append(transaction)
+
+            # --- START FILTERING LOGIC ---
+            q = request.GET.get('q')
+            if q:
+                query_lower = q.lower()
+                filtered_list = []
+                for transaction in transactions_list:
+                    # Check if the query is in any of the relevant string values
+                    if any(query_lower in str(value).lower() for value in [
+                        transaction['person'].get('nombre_completo', ''),
+                        transaction['person'].get('cedula', ''),
+                        transaction['person'].get('cargo', ''),
+                        transaction['person'].get('compania', ''),
+                        transaction['descripcion'],
+                        transaction['tipo_tarjeta'],
+                        transaction['numero_tarjeta'],
+                        transaction['fecha_transaccion'],
+                        transaction['numero_autorizacion'],
+                        transaction['categoria'],
+                        transaction['subcategoria'],
+                        transaction['zona'],
+                        transaction['dia']
+                    ]):
+                        filtered_list.append(transaction)
+                transactions_list = filtered_list
+            # --- END FILTERING LOGIC ---
             
             print(f"DEBUG: Total transactions in transactions_list: {len(transactions_list)}")
             if transactions_list:
@@ -928,7 +954,7 @@ def import_persons(request):
                 'compania': 'compania',
                 'cargo': 'cargo',
                 'activo': 'activo',
-                'division': 'area',
+                'BUSINESS UNIT': 'area',
             }
 
             # Rename columns based on the mapping
@@ -998,7 +1024,7 @@ def import_persons(request):
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
-                        'area': row.get('area', ''), # Add the 'area' field
+                        'area': row.get('area', ''), 
                     }
                 )
 
@@ -1022,9 +1048,6 @@ def import_conflicts(request):
                     destination.write(chunk)
 
             subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
-
-            import pandas as pd
-            from core.models import Person, Conflict
 
             processed_file = os.path.join(settings.BASE_DIR, "core", "src", "conflicts.xlsx")
             df = pd.read_excel(processed_file)
@@ -1192,15 +1215,19 @@ def import_financial_reports(request):
                         defaults=report_data
                     )
                 else:
-                    messages.warning(request, f"Skipping financial report for {cedula} due to missing fk_id_periodo.")
+                    messages.warning(request, f"Skipping row for {person.nombre_completo} due to missing fk_id_periodo.")
 
             except Exception as e:
-                messages.error(request, f"Error processing financial report row {row.get('cedula')}: {str(e)}")
-                continue
+                messages.error(request, f"Error processing financial report for row: {row.to_dict()}. Error: {e}")
+                
+        messages.success(request, f"Se importaron exitosamente los datos de {len(df)} reportes financieros.")
 
-        messages.success(request, f'Reportes financieros importados exitosamente! {len(df)} registros procesados.')
+    except FileNotFoundError:
+        messages.error(request, "Error: idTrends.xlsx no se encontró. Asegúrese de que los scripts de análisis se hayan ejecutado correctamente.")
     except Exception as e:
-        messages.error(request, f'Error procesando archivo idTrends.xlsx: {str(e)}')
+        messages.error(request, f"Ocurrió un error al procesar el archivo idTrends.xlsx: {e}")
+
+    return redirect('import')
 
 @login_required
 def person_list(request):
@@ -5880,7 +5907,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
-                       placeholder="Buscar persona, cedula o descripcion..." 
+                       placeholder="Buscar cualquier valor..." 
                        value="{{ request.GET.q }}">
             </div>
 
@@ -5959,7 +5986,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 Fecha de Transaccion
                             </a>
                         </th>
-                        <th>deta
+                        <th>
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=dia&sort_direction={% if current_order == 'dia' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Dia
                             </a>
