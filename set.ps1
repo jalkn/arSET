@@ -4524,16 +4524,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -4544,7 +4544,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -4918,19 +4918,19 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="DashBoard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -5193,16 +5193,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="DashBoard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -5213,10 +5213,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i> 
     </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
         <i class="fas fa-file-excel" style="color: green;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -5450,16 +5450,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="DashBoard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -5473,7 +5473,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-database"></i>
     </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
         <i class="fas fa-file-excel" style="color: green;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -5863,16 +5863,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -5883,7 +5883,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -6121,16 +6121,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -6141,10 +6141,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i> 
     </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
         <i class="fas fa-file-excel" style="color: green;"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -7179,19 +7179,19 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
         <i class="fas fa-pencil-alt"></i>
     </a>-->
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -7202,7 +7202,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -7648,14 +7648,14 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <thead>
                                 <tr>
                                     <th>Fecha</th>
-                                    <th>Categoría</th>
-                                    <th>Subcategoría</th>
+                                    <th>Categoria</th>
+                                    <th>Subcategoria</th>
                                     <th>Tipo de Tarjeta</th>
-                                    <th>Día</th>
+                                    <th>Dia</th>
                                     <th>Valor COP</th>
-                                    <th>Descripción</th>
+                                    <th>Descripcion</th>
                                     <th>Zona</th>
-                                    <th>No. Autorización</th>
+                                    <th>No. Autorizacion</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -7715,16 +7715,16 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 
 {% block navbar_buttons %}
 <div>
-    <a href="/" class="btn btn-custom-primary">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
         <i class="fas fa-chart-line" style="color: green;"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
         <i class="far fa-credit-card" style="color: blue;"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary">
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
         <i class="fas fa-balance-scale" style="color: orange;"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
@@ -7735,10 +7735,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         {% endif %}
         <i class="fas fa-bell" style="color: red;"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
         <i class="fas fa-database"></i> 
     </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary">
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
         <i class="fas fa-file-excel" style="color: green;"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
