@@ -1723,22 +1723,25 @@ def import_finances(request):
 
 @login_required
 def person_details(request, cedula):
-    try:
-        person = Person.objects.get(cedula=cedula)
-        conflicts = Conflict.objects.filter(person=person)
-        financial_reports = FinancialReport.objects.filter(person=person).order_by('-ano_declaracion', '-fk_id_periodo') 
-
-        context = {
-            'myperson': person,
-            'conflicts': conflicts,
-            'financial_reports': financial_reports, 
-            'alerts_count': Person.objects.filter(revisar=True).count(), 
-        }
-
-        return render(request, 'details.html', context)
-    except Person.DoesNotExist:
-        messages.error(request, f"Person with ID {cedula} not found")
-        return redirect('person_list')
+    """
+    View to display the details of a specific person, including related financial reports, conflicts, and credit card transactions.
+    """
+    myperson = get_object_or_404(Person, cedula=cedula)
+    financial_reports = FinancialReport.objects.filter(person=myperson).order_by('-ano_declaracion')
+    conflicts = myperson.conflicts.all().order_by('-fecha_inicio')
+    
+    # Retrieve all CreditCard objects associated with the person
+    credit_card_transactions = CreditCard.objects.filter(person=myperson)
+    
+    context = {
+        'myperson': myperson,
+        'financial_reports': financial_reports,
+        'conflicts': conflicts,
+        'alerts_count': Person.objects.filter(revisar=True).count(),
+        'credit_card_transactions': credit_card_transactions, # Add the credit card transactions to the context
+    }
+    
+    return render(request, 'details.html', context)
 
 
 @login_required
@@ -7631,6 +7634,55 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         </div>
     </div>
 </div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Transacciones de Tarjeta de Credito</h5>
+            </div>
+            <div class="card-body">
+                {% if credit_card_transactions %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Categoría</th>
+                                    <th>Subcategoría</th>
+                                    <th>Tipo de Tarjeta</th>
+                                    <th>Día</th>
+                                    <th>Valor COP</th>
+                                    <th>Descripción</th>
+                                    <th>Zona</th>
+                                    <th>No. Autorización</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for transaction in credit_card_transactions %}
+                                <tr>
+                                    <td>{{ transaction.fecha_transaccion|date:"d/m/Y" }}</td>
+                                    <td>{{ transaction.categoria }}</td>
+                                    <td>{{ transaction.subcategoria }}</td>
+                                    <td>{{ transaction.tipo_tarjeta }}</td>
+                                    <td>{{ transaction.dia }}</td>
+                                    <td>{{ transaction.valor_cop }}</td>
+                                    <td>{{ transaction.descripcion }}</td>
+                                    <td>{{ transaction.zona }}</td>
+                                    <td>{{ transaction.numero_autorizacion }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No hay transacciones de tarjeta de crédito disponibles para esta persona.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const conflictSelect = document.getElementById('conflict-select');
