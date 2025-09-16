@@ -1,0 +1,113 @@
+erDiagram
+    Person ||--|{ Conflict : "declara"
+    Person ||--|{ FinancialReport : "posee"
+    Person ||--|{ CreditCard : "tiene"
+    
+    Person {
+        VARCHAR cedula PK
+        INT personIDsuccess
+        VARCHAR nombre_completo
+        VARCHAR apellido
+        VARCHAR correo
+        VARCHAR correo365
+        VARCHAR estado
+        VARCHAR compania
+        VARCHAR cargo
+        VARCHAR area Bussines Unit
+        BOOLEAN revisar
+        TEXT comments
+        DATETIME created_at
+        DATETIME updated_at
+    }
+    
+    Conflict {
+        INT id PK
+        VARCHAR cedula FK
+        INT ano
+        DATE fecha_inicio
+        BOOLEAN q1
+        TEXT q1_detalle
+        BOOLEAN q2
+        TEXT q2_detalle
+        BOOLEAN q3
+        TEXT q3_detalle
+        BOOLEAN q4
+        TEXT q4_detalle
+        BOOLEAN q5
+        TEXT q5_detalle
+        BOOLEAN q6
+        TEXT q6_detalle
+        BOOLEAN q7
+        TEXT q7_detalle
+        BOOLEAN q8
+        BOOLEAN q9
+        BOOLEAN q10
+        TEXT q10_detalle
+        BOOLEAN q11
+        TEXT q11_detalle
+        DATETIME created_at
+        DATETIME updated_at
+    }
+    
+    FinancialReport {
+        INT id PK
+        VARCHAR cedula FK
+        INT fk_id_periodo
+        INT ano_declaracion
+        INT ano_creacion
+        FLOAT activos
+        INT cant_bienes
+        INT cant_bancos
+        INT cant_cuentas
+        INT cant_inversiones
+        FLOAT pasivos
+        INT cant_deudas
+        FLOAT patrimonio
+        FLOAT apalancamiento
+        FLOAT endeudamiento
+        FLOAT capital
+        FLOAT aum_pat_subito
+        FLOAT activos_var_abs
+        VARCHAR activos_var_rel
+        FLOAT pasivos_var_abs
+        VARCHAR pasivos_var_rel
+        FLOAT patrimonio_var_abs
+        VARCHAR patrimonio_var_rel
+        FLOAT apalancamiento_var_abs
+        VARCHAR apalancamiento_var_rel
+        FLOAT endeudamiento_var_abs
+        VARCHAR endeudamiento_var_rel
+        FLOAT banco_saldo
+        FLOAT bienes
+        FLOAT inversiones
+        FLOAT banco_saldo_var_abs
+        VARCHAR banco_saldo_var_rel
+        FLOAT bienes_var_abs
+        VARCHAR bienes_var_rel
+        FLOAT inversiones_var_abs
+        VARCHAR inversiones_var_rel
+        FLOAT ingresos
+        INT cant_ingresos
+        FLOAT ingresos_var_abs
+        VARCHAR ingresos_var_rel
+        DATETIME created_at
+        DATETIME updated_at
+    }
+    
+    CreditCard {
+        INT id PK
+        VARCHAR cedula FK
+        VARCHAR tipo_tarjeta
+        VARCHAR numero_tarjeta
+        VARCHAR moneda
+        VARCHAR trm_cierre
+        VARCHAR valor_original
+        VARCHAR valor_cop
+        VARCHAR numero_autorizacion
+        DATE fecha_transaccion
+        VARCHAR dia
+        TEXT descripcion
+        VARCHAR categoria
+        VARCHAR subcategoria
+        VARCHAR zona
+    }

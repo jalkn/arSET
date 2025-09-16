@@ -8,20 +8,20 @@ function arpa {
 
     Write-Host "🚀 Creating ARPA" -ForegroundColor $YELLOW
 
-    # Create Python virtual environment
-    python -m venv .venv
+    # Create python3 virtual environment
+    python3 -m venv .venv
     .\.venv\scripts\activate
 
-    # Install required Python packages
-    python -m pip install --upgrade pip
-    python -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    # Install required python3 packages
+    python3 -m pip install --upgrade pip
+    python3 -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
     cd arpa
 
     # Create core app
-    python manage.py startapp core
+    python3 manage.py startapp core
 
     # Create templates directory structure
     $directories = @(
@@ -1047,7 +1047,7 @@ def import_conflicts(request):
                 for chunk in excel_file.chunks():
                     destination.write(chunk)
 
-            subprocess.run(['python', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
+            subprocess.run(['python3', 'core/conflicts.py'], check=True, cwd=settings.BASE_DIR)
 
             processed_file = os.path.join(settings.BASE_DIR, "core", "src", "conflicts.xlsx")
             df = pd.read_excel(processed_file)
@@ -1691,16 +1691,16 @@ def import_finances(request):
             # Run the analysis scripts in sequence
             try:
                 # Run cats.py analysis
-                subprocess.run(['python', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/cats.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run nets.py analysis
-                subprocess.run(['python', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/nets.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run trends.py analysis
-                subprocess.run(['python', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/trends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # Run idTrends.py analysis
-                subprocess.run(['python', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
+                subprocess.run(['python3', 'core/idTrends.py'], check=True, cwd=settings.BASE_DIR)
 
                 # After idTrends.py generates idTrends.xlsx, import the data into the FinancialReport model
                 import_financial_reports(request) # Call the new import function
@@ -3989,30 +3989,42 @@ Set-Content -Path "core/templatetags/__init__.py" -Value @"
 #statics css style
 @" 
 :root {
-    --primary-color: #0b00a2;
-    --primary-hover: #090086;
+    --primary-color: #1a4d7d;
+    --primary-hover: #153c61;
     --text-on-primary: white;
+    --secondary-color: #6c757d;
+    --secondary-hover: #5a6268;
+    --success-color: #28a745;
+    --success-hover: #218838;
+    --warning-color: #ffc107;
+    --warning-hover: #e0a800;
+    --danger-color: #dc3545;
+    --danger-hover: #c82333;
+    --info-color: #17a2b8;
+    --info-hover: #138496;
+    --light-bg: #f8f9fa;
+    --card-bg: white;
+    --border-color: #e9ecef;
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 body {
+    font-family: var(--font-family);
+    background-color: var(--light-bg);
     margin: 0;
-    padding: 20px;
-    background-color: #f8f9fa;
 }
 
-.topnav-container {
-    display: flex;
-    align-items: center;
-    padding: 0 40px;
-    margin-bottom: 20px;
-    gap: 15px;
+main {
+    padding-top: 20px;
+    padding-bottom: 20px;
 }
 
+/* Navbar */
 .logoIN {
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     background-color: var(--primary-color);
-    border-radius: 8px;
+    border-radius: 4px;
     position: relative;
     flex-shrink: 0;
 }
@@ -4032,140 +4044,169 @@ body {
 }
 
 .navbar-title {
-    color: var(--primary-color);
-    font-weight: bold;
     font-size: 1.25rem;
-    margin-right: auto;
-}
-
-.navbar-buttons {
-    display: flex;
-    gap: 10px;
-}
-
-.btn-custom-primary {
-    background-color: white;
-    border-color: var(--primary-color);
+    font-weight: 500;
     color: var(--primary-color);
-    padding: 0.5rem 1rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 40px;
 }
 
-.btn-custom-primary:hover,
-.btn-custom-primary:focus {
-    background-color: var(--primary-hover);
-    border-color: var(--primary-hover);
+.btn-outline-primary {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--primary-color);
     color: var(--text-on-primary);
 }
 
-.btn-custom-primary i,
-.btn-outline-dark i {
-    margin-right: 0;
+.btn-outline-secondary {
+    color: var(--secondary-color);
+    border-color: var(--secondary-color);
+}
+
+.btn-outline-secondary:hover {
+    background-color: var(--secondary-color);
+    color: var(--text-on-primary);
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--text-on-primary);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+    color: var(--text-on-primary);
+}
+
+.btn-secondary:hover {
+    background-color: var(--secondary-hover);
+    border-color: var(--secondary-hover);
+}
+
+.btn-outline-success {
+    color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+.btn-outline-success:hover {
+    background-color: var(--success-color);
+    color: var(--text-on-primary);
+}
+
+.btn-outline-danger {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+.btn-outline-danger:hover {
+    background-color: var(--danger-color);
+    color: var(--text-on-primary);
+}
+
+/* Cards */
+.card {
+    border: 1px solid var(--border-color);
+    border-radius: .5rem;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card-title {
     font-size: 1rem;
-    line-height: 1;
-    display: inline-block;
-    vertical-align: middle;
-}
-
-.main-container {
-    padding: 0 40px;
-}
-
-/* Search filter styles */
-.search-filter {
-    margin-bottom: 20px;
-    max-width: 400px;
-}
-
-/* Table row hover effect */
-.table-hover tbody tr:hover {
-    background-color: rgba(11, 0, 162, 0.05);
-}
-
-.btn-my-green {
-    background-color: white;
-    border-color: rgb(0, 166, 0);
-    color: rgb(0, 166, 0);
-}
-
-.btn-my-green:hover {
-    background-color: darkgreen;
-    border-color: darkgreen;
-    color: white;
-}
-
-.btn-my-green:focus,
-.btn-my-green.focus {
-    box-shadow: 0 0 0 0.2rem rgba(0, 128, 0, 0.5);
-}
-
-.btn-my-green:active,
-.btn-my-green.active {
-    background-color: darkgreen !important;
-    border-color: darkgreen !important;
-}
-
-.btn-my-green:disabled,
-.btn-my-green.disabled {
-    background-color: lightgreen;
-    border-color: lightgreen;
     color: #6c757d;
 }
 
-/* Card styles */
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+.card-text {
+    font-size: 1.75rem;
 }
 
-/* Table styles */
-.table {
-    width: 100%;
-    margin-bottom: 1rem;
-    color: #212529;
-}
-
-.table th {
-    vertical-align: bottom;
-    border-bottom: 2px solid #dee2e6;
-}
-
-.table td {
+/* Table */
+.table th, .table td {
     vertical-align: middle;
+    padding: .75rem 1rem;
 }
 
-/* Alert styles */
-.alert {
-    position: relative;
-    padding: 0.75rem 1.25rem;
-    margin-bottom: 1rem;
-    border: 1px solid transparent;
-    border-radius: 0.25rem;
+.table thead th {
+    background-color: #f1f3f5;
+    border-bottom: 2px solid var(--border-color);
+    font-weight: 600;
 }
 
-/* Badge styles */
+.table-hover tbody tr:hover {
+    background-color: #f1f3f5;
+}
+
+.table-warning {
+    background-color: #fff3cd !important;
+}
+
+/* Badges */
 .badge {
-    display: inline-block;
-    padding: 0.35em 0.65em;
-    font-size: 0.75em;
-    font-weight: 700;
-    line-height: 1;
-    color: #fff;
-    text-align: center;
-    white-space: nowrap;
-    vertical-align: baseline;
-    border-radius: 0.25rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.75rem;
 }
 
 .bg-success {
-    background-color:rgb(0, 166, 0) !important;
+    background-color: var(--success-color) !important;
 }
 
 .bg-danger {
-    background-color: #dc3545 !important;
+    background-color: var(--danger-color) !important;
+}
+
+.bg-warning {
+    background-color: var(--warning-color) !important;
+    color: #212529 !important;
+}
+
+.text-primary { color: var(--primary-color) !important; }
+.text-success { color: var(--success-color) !important; }
+.text-danger { color: var(--danger-color) !important; }
+.text-info { color: var(--info-color) !important; }
+.text-warning { color: var(--warning-color) !important; }
+.text-secondary { color: var(--secondary-color) !important; }
+
+/* Form Elements */
+.form-control, .form-select {
+    border-radius: .25rem;
+    border-color: #ced4da;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.25rem rgba(26, 77, 125, 0.25);
+}
+
+/* Utilities */
+.shadow-sm {
+    box-shadow: 0 .125rem .25rem rgba(0,0,0,.075)!important;
+}
+
+.border-0 {
+    border: none !important;
+}
+
+.text-dark {
+    color: #212529 !important;
+}
+
+/* Footer */
+footer {
+    border-top: 1px solid var(--border-color);
 }
 "@ | Out-File -FilePath "core/static/css/style.css" -Encoding utf8
 
@@ -4463,31 +4504,33 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 </head>
 <body>
     {% if user.is_authenticated %}
-    <div class="topnav-container">
-        <a href="/" style="text-decoration: none;">
-            <div class="logoIN"></div>
-        </a>
-        <div class="navbar-title">{% block navbar_title %}ARPA{% endblock %}</div>
-        <div class="navbar-buttons">
-            {% block navbar_buttons %}
-            <a href="/admin/" class="btn btn-outline-dark" title="Admin">
-                <i class="fas fa-wrench"></i>
+    <header class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
+        <div class="container-fluid">
+            <a href="/" class="d-flex align-items-center me-3">
+                <div class="logoIN"></div>
             </a>
-            <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
-                <i class="fas fa-database"></i>
-            </a>
-            <form method="post" action="{% url 'logout' %}" class="d-inline">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-                    <i class="fas fa-sign-out-alt"></i>
-                </button>
-            </form>
-            {% endblock %}
+            <div class="navbar-title">{% block navbar_title %}{% endblock %}</div>
+            <div class="ms-auto d-flex align-items-center gap-2">
+                {% block navbar_buttons %}
+                <a href="/admin/" class="btn btn-custom-primary" title="Admin">
+                    <i class="fas fa-wrench"></i>
+                </a>
+                <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+                    <i class="fas fa-database"></i>
+                </a>
+                <form method="post" action="{% url 'logout' %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </form>
+                {% endblock %}
+            </div>
         </div>
-    </div>
+    </header>
     {% endif %}
     
-    <div class="main-container">
+    <main class="container-fluid py-4">
         {% if messages %}
             {% for message in messages %}
                 <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
@@ -4499,9 +4542,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
         
         {% block content %}
         {% endblock %}
-    </div>
+    </main>
 
-    <footer class="footer mt-auto py-3 bg-light">
+    <footer class="footer mt-auto py-3 bg-light border-top">
         <div class="container text-center">
             <span class="text-muted">&copy; A R P A 2 0 2 5</span>
         </div>
@@ -4523,151 +4566,130 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Dashboard{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
-        <i class="fas fa-users"></i>
-    </a>
-    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
-    </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary">0</span>
-        {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
-        <i class="fas fa-database"></i>
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
+    <i class="fas fa-users"></i>
+</a>
+<a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+    <i class="fas fa-chart-line"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos">
+    <i class="fas fa-balance-scale"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle">{{ alerts_count }}</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i>
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-3">
-    <div class="row">
-        <!-- Dashboard cards -->
-        <!-- Div for Person count -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'person_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-users fa-3x text-primary mb-2"></i>
-                    <h5 class="card-title mb-1">Total de Personas</h5>
-                    <h2 class="card-text">{{ person_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-        <!-- Div for Conflict count -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'conflict_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-balance-scale fa-3x text-orange mb-2" style="color: orange;" ></i>
-                    <h5 class="card-title mb-1">Declaraciones de Conflictos</h5>
-                    <h2 class="card-text">{{ conflict_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-
-        <!-- Div for Financial Report count -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'financial_report_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
-                    <h5 class="card-title mb-1">Declaraciones B&R</h5>
-                    <h2 class="card-text">{{ finances_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'tcs_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="far fa-credit-card fa-3x text-info"></i>
-                    <h5 class="mb-2">Tarjetas de Credito</h5>
-                    <h2 class="card-text">{{ tc_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-    </div>
-
-    <!-- Second row for more specific cards -->
-    <div class="row">
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'person_list' %}?status=Activo" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-running fa-3x text-success mb-2"></i> {# Changed icon and color #}
-                    <h5 class="card-title mb-1">Personas Activas</h5>
-                    <h2 class="card-text">{{ active_person_count|intcomma }}</h2> {# You'll need to pass active_person_count from your view #}
-                </div>
-            </a>
-        </div>
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'person_list' %}?status=Retirado" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-user-times fa-3x text-secondary mb-2"></i> {# Icon for retired person #}
-                    <h5 class="card-title mb-1">Personas Retiradas</h5>
-                    <h2 class="card-text">{{ retired_person_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-        <!-- New div for Accionista del Grupo count, with corrected link -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-handshake fa-3x text-success mb-2"></i>
-                    <h5 class="card-title mb-1">Accionista del Grupo</h5>
-                    <h2 class="card-text">{{ accionista_grupo_count|intcomma }}</h2> 
-                </div>
-            </a>
-        </div>
-        <!-- Div for Alerts count -->
-        <div class="col-md-3 mb-4">
-            <a href="{% url 'alerts_list' %}" class="card h-100 text-decoration-none text-dark">
-                <div class="card-body text-center d-flex flex-column justify-content-center align-items-center">
-                    <i class="fas fa-bell fa-3x text-danger mb-2"></i>
-                    <h5 class="card-title mb-1">Alertas</h5>
-                    <h2 class="card-text">{{ alerts_count|intcomma }}</h2>
-                </div>
-            </a>
-        </div>
-    </div>
-
-    <!-- Chart section for declarations -->
-    <div class="row my-4">
-        <!-- New Chart section for conflicts -->
-        <div class="col-12 col-lg-6">
-            <div class="card p-3 h-100">
-                <h5 class="card-title text-center">Declaraciones de Conflictos Anual</h5>
-                <canvas id="conflictsChart"></canvas>
+<div class="row g-4">
+    <div class="col-md-3">
+        <a href="{% url 'person_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-users fa-3x text-primary mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Total de Personas</h5>
+                <h2 class="card-text fw-bold text-dark">{{ person_count|intcomma }}</h2>
             </div>
-        </div>
-        <div class="col-12 col-lg-6">
-            <div class="card p-3 h-100">
-                <h5 class="card-title text-center">Declaraciones B&R Anual</h5>
-                <canvas id="declarationsChart"></canvas>
-            </div>
-        </div>
+        </a>
     </div>
-
+    <div class="col-md-3">
+        <a href="{% url 'conflict_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-balance-scale fa-3x text-info mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Declaraciones de Conflictos</h5>
+                <h2 class="card-text fw-bold text-dark">{{ conflict_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'financial_report_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-chart-line fa-3x text-success mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Declaraciones B&R</h5>
+                <h2 class="card-text fw-bold text-dark">{{ finances_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'tcs_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="far fa-credit-card fa-3x text-warning mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Tarjetas de Credito</h5>
+                <h2 class="card-text fw-bold text-dark">{{ tc_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'person_list' %}?status=Activo" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-running fa-3x text-success mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Personas Activas</h5>
+                <h2 class="card-text fw-bold text-dark">{{ active_person_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'person_list' %}?status=Retirado" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-user-times fa-3x text-secondary mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Personas Retiradas</h5>
+                <h2 class="card-text fw-bold text-dark">{{ retired_person_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-handshake fa-3x text-success mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Accionista del Grupo</h5>
+                <h2 class="card-text fw-bold text-dark">{{ accionista_grupo_count|intcomma }}</h2> 
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'alerts_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
+            <div class="card-body text-center p-4">
+                <i class="fas fa-bell fa-3x text-danger mb-3"></i>
+                <h5 class="card-title fw-normal mb-1">Alertas</h5>
+                <h2 class="card-text fw-bold text-dark">{{ alerts_count|intcomma }}</h2>
+            </div>
+        </a>
+    </div>
 </div>
-<!-- Chart.js CDN -->
+
+<div class="row my-4 g-4">
+    <div class="col-12 col-lg-6">
+        <div class="card p-3 shadow-sm h-100">
+            <h5 class="card-title text-center fw-bold">Declaraciones de Conflictos Anual</h5>
+            <canvas id="conflictsChart"></canvas>
+        </div>
+    </div>
+    <div class="col-12 col-lg-6">
+        <div class="card p-3 shadow-sm h-100">
+            <h5 class="card-title text-center fw-bold">Declaraciones B&R Anual</h5>
+            <canvas id="declarationsChart"></canvas>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Chart for Declarations by year
         const declarationsCtx = document.getElementById('declarationsChart').getContext('2d');
         const declarationsChart = new Chart(declarationsCtx, {
             type: 'bar',
@@ -4682,10 +4704,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         "{{ declarations_2024_count|default:0 }}"
                     ],
                     backgroundColor: [
-                        '#1f77b4', // Stronger blue
-                        '#ff7f0e', // Stronger orange
-                        '#2ca02c', // Stronger green
-                        '#9467bd'  // Stronger purple
+                        '#003366',
+                        '#005588',
+                        '#0077AA',
+                        '#0099CC'
                     ],
                     borderWidth: 1
                 }]
@@ -4715,7 +4737,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             }
         });
 
-        // New Chart for Conflicts by year
         const conflictsCtx = document.getElementById('conflictsChart').getContext('2d');
         const conflictsChart = new Chart(conflictsCtx, {
             type: 'bar',
@@ -4730,10 +4751,10 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         "{{ conflicts_2024_count|default:0 }}"
                     ],
                     backgroundColor: [
-                        'orange', // Stronger red
-                        'blue', // Stronger brown
-                        '#e377c2', // Stronger pink
-                        '#7f7f7f'  // Stronger grey
+                        '#FF8C00',
+                        '#FFA500',
+                        '#FFB732',
+                        '#FFC966'
                     ],
                     borderWidth: 1
                 }]
@@ -4912,34 +4933,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 # Create import template
 @"
 {% extends "master.html" %}
+{% load static %}
 
 {% block title %}Importar desde Excel{% endblock %}
 {% block navbar_title %}Importar Datos{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <a href="/" class="btn btn-custom-primary" title="DashBoard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+<div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
+        <i class="fas fa-chart-pie"></i>
     </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
+        <i class="fas fa-chart-line"></i>
     </a>
     <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
+        <i class="far fa-credit-card"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
+        <i class="fas fa-balance-scale"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
+            <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
         {% else %}
-            <span class="badge bg-secondary">0</span>
+            <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
         {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
+        <i class="fas fa-bell"></i>
+    </a>
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+        <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -4951,7 +4976,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% endblock %}
 
 {% block content %}
-{% load static %}
 <div class="loading-overlay" id="loadingOverlay">
     <div class="loading-content">
         <h4>Procesando datos...</h4>
@@ -4965,167 +4989,155 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 </div>
 
 <link rel="stylesheet" href="{% static 'css/loading.css' %}">
-
 <script src="{% static 'js/loading.js' %}"></script>
 
-<div class="row mb-4">
-    <div class="col-md-3 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
+<style>
+    .upload-form {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    .upload-form .form-control {
+        flex: 1;
+    }
+    .upload-btn {
+        padding: 0.375rem 0.75rem;
+    }
+</style>
+
+<div class="row g-3 mb-1">
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-users fa-3x text-primary mb-2"></i>
+                <h5 class="card-title">Personas</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_persons' %}">
                     {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="excel_file" name="excel_file" required>
-                        <div class="form-text">El archivo debe incluir las columnas: Id, NOMBRE COMPLETO, CARGO, Cedula, Correo, Compania, Estado</div>
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="excel_file" required>
+                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Personas</button>
                 </form>
             </div>
-            {% for message in messages %}
-                {% if 'import_persons' in message.tags %}
-                <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
-            <div class="card-footer">
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-success">
-                        {{ person_count }} Personas Registradas
-                    </span>
-                </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ person_count }} Registradas
+                </span>
             </div>
         </div>
     </div>
-
-    <div class="col-md-3 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
+    
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-balance-scale fa-3x text-warning mb-2"></i>
+                <h5 class="card-title">Conflictos</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_conflicts' %}">
                     {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="conflict_excel_file" name="conflict_excel_file" required>
-                        <div class="form-text">'ID', 'Cedula', 'Nombre', 'Compania', 'Cargo', 'Email', 'Fecha de Inicio', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q9', 'Q10', 'Q11' </div>
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="conflict_excel_file" required>
+                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Conflictos</button>
                 </form>
             </div>
-            {% for message in messages %}
-                {% if 'import_conflict_excel' in message.tags %}
-                <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
-            <div class="card-footer">
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-success">
-                        {{ conflict_count }} Declaraciones Registradas
-                    </span>
-                </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ conflict_count }} Registradas
+                </span>
             </div>
         </div>
     </div>
 
-    <div class="col-md-3 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-chart-line fa-3x text-success mb-2"></i>
+                <h5 class="card-title">Bienes y Rentas</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_finances' %}">
                     {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="finances_file" name="finances_file" required>
-                        <div class="form-text">El archivo debe ser dataHistoricaPBI.xlsx</div>
-                        <div class="mb-3">
-                            <input type="password" class="form-control" id="excel_password" name="excel_password">
-                            <div class="form-text">Ingrese la clave si el archivo esta protegido</div>
-                        </div>
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="finances_file" required>
+                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Bienes y Rentas</button>
+                    <div class="upload-form">
+                        <input type="password" class="form-control form-control-sm" name="excel_password" placeholder="Clave (opcional)">
+                    </div>
                 </form>
             </div>
-            {% for message in messages %}
-                {% if 'import_finances' in message.tags %}
-                <div class="card-footer">
-                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show mb-0">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                </div>
-                {% endif %}
-            {% endfor %}
-            <div class="card-footer">
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-success">
-                        {{ finances_count }} Bienes y Rentas Registradas
-                    </span>
-                </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ finances_count }} Registradas
+                </span>
             </div>
         </div>
     </div>
 
-    <div class="col-md-3 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="far fa-credit-card fa-3x text-info mb-2"></i>
+                <h5 class="card-title">Tarjetas</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
                     {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="visa_pdf_files" name="visa_pdf_files" multiple accept=".pdf" required>
-                        <div class="form-text">Seleccione los PDFs de extractos de tarjetas</div>
-                        <div class="mb-3">
-                            <input type="password" class="form-control" id="visa_pdf_password" name="visa_pdf_password">
-                            <div class="form-text">Ingrese la clave</div>
-                        </div>
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="visa_pdf_files" multiple accept=".pdf" required>
+                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar TCs</button>
+                    <div class="upload-form">
+                        <input type="password" class="form-control form-control-sm" name="visa_pdf_password" placeholder="Clave (opcional)">
+                    </div>
                 </form>
             </div>
-            <div class="card-footer">
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-success">
-                        {{ tc_count }} Tarjetas Registradas
-                    </span>
-                </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ tc_count }} Registradas
+                </span>
             </div>
         </div>
     </div>
-
-    <div class="col-md-3 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
+    
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-tags fa-3x text-secondary mb-2"></i>
+                <h5 class="card-title">Categorías</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_categorias' %}">
                     {% csrf_token %}
-                    <div class="mb-3">
-                        <input type="file" class="form-control" id="categorias_excel_file" name="categorias_excel_file" accept=".xlsx,.xls" required>
-                        <div class="form-text">Seleccione el archivo categorias.xlsx</div>
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="categorias_excel_file" accept=".xlsx,.xls" required>
+                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-custom-primary btn-lg text-start">Importar Categorias TCs</button>
                 </form>
             </div>
-            <div class="card-footer">
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-success">
-                        {{ categorias_count }} Categorías Registradas </span>
-                </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ categorias_count }} Registradas
+                </span>
             </div>
         </div>
     </div>
+</div>
 
-</div> <div class="row">
+<div class="row">
     <div class="col-12">
-        <div class="card h-100">
+        <div class="card h-100 border-0 shadow">
             <div class="card-header bg-light">
                 <h5 class="mb-0">Resultados del Analisis</h5>
             </div>
             <div class="card-body">
                 {% if analysis_results %}
                 <div class="table-responsive">
-                    <table class="table table-sm">
+                    <table class="table table-sm table-striped table-hover mb-0">
                         <thead>
                             <tr>
                                 <th>Archivo Generado</th>
@@ -5174,7 +5186,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </div>
                 {% endif %}
             </div>
-            <div class="card-footer">
+            <div class="card-footer bg-transparent border-0">
                 <small class="text-muted">Los archivos se procesan en: core/src/</small>
             </div>
         </div>
@@ -5192,170 +5204,153 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Personas{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <a href="/" class="btn btn-custom-primary" title="DashBoard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
-    </a>
-    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
-    </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary">0</span>
-        {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
-        <i class="fas fa-database"></i> 
-    </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
-        <i class="fas fa-file-excel" style="color: green;"></i>
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="/" class="btn btn-custom-primary" title="Dashboard">
+    <i class="fas fa-chart-pie"></i>
+</a>
+<a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+    <i class="fas fa-chart-line"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos">
+    <i class="fas fa-balance-scale"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle">{{ alerts_count }}</span>
+    {% else %}
+        <span class="badge rounded-pill bg-secondary position-absolute top-0 start-100 translate-middle">0</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i> 
+</a>
+<a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
+    <i class="fas fa-file-excel"></i>
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
-<!-- Search Form -->
-<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+<div class="card mb-4 shadow-sm border-0">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
-            <div class="d-flex align-items-center">
-                <span class="badge bg-success">
-                    {{ page_obj.paginator.count }} registros
-                </span>
+            <div class="col-12 d-flex align-items-center mb-3">
+                <span class="badge bg-success py-2 px-3 fs-6">{{ page_obj.paginator.count }} registros</span>
                 {% if request.GET.q or request.GET.status or request.GET.cargo or request.GET.compania %}
                 {% endif %}
             </div>
-            <!-- General Search -->
             <div class="col-md-4">
                 <input type="text" 
                        name="q" 
-                       class="form-control form-control-lg" 
+                       class="form-control" 
                        placeholder="Buscar persona o cedula" 
                        value="{{ request.GET.q }}">
             </div>
-            
-            <!-- Status Filter -->
             <div class="col-md-2">
-                <select name="status" class="form-select form-select-lg">
+                <select name="status" class="form-select">
                     <option value="">Estado</option>
                     <option value="Activo" {% if request.GET.status == 'Activo' %}selected{% endif %}>Activo</option>
                     <option value="Retirado" {% if request.GET.status == 'Retirado' %}selected{% endif %}>Retirado</option>
                 </select>
             </div>
-            
-            <!-- Cargo Filter -->
             <div class="col-md-2">
-                <select name="cargo" class="form-select form-select-lg">
+                <select name="cargo" class="form-select">
                     <option value="">Cargo</option>
                     {% for cargo in cargos %}
                         <option value="{{ cargo }}" {% if request.GET.cargo == cargo %}selected{% endif %}>{{ cargo }}</option>
                     {% endfor %}
                 </select>
             </div>
-
-            <!-- Area Filter - New -->
             <div class="col-md-2">
-                <select name="area" class="form-select form-select-lg">
+                <select name="area" class="form-select">
                     <option value="">Area</option>
                     {% for area in areas %}
                         <option value="{{ area }}" {% if request.GET.area == area %}selected{% endif %}>{{ area }}</option>
                     {% endfor %}
                 </select>
             </div>
-            
-            <!-- Compania Filter -->
             <div class="col-md-2">
-                <select name="compania" class="form-select form-select-lg">
+                <select name="compania" class="form-select">
                     <option value="">Compania</option>
                     {% for compania in companias %}
                         <option value="{{ compania }}" {% if request.GET.compania == compania %}selected{% endif %}>{{ compania }}</option>
                     {% endfor %}
                 </select>
             </div>
-            
-            <!-- Submit Buttons -->
             <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
-                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+                <button type="submit" class="btn btn-primary flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-secondary flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Persons Table -->
-<div class="card border-0 shadow">
+<div class="card shadow-sm border-0">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
-            <table class="table table-striped table-hover mb-0">
-                <thead class="table-fixed-header">
+            <table class="table table-hover mb-0">
+                <thead class="table-light table-fixed-header">
                     <tr>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Revisar
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Cedula
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Nombre
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Cargo
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=area&sort_direction={% if current_order == 'area' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=area&sort_direction={% if current_order == 'area' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Area
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Correo
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Compania
                             </a>
                         </th>
-                        <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                        <th class="py-3">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="text-decoration-none text-dark">
                                 Estado
                             </a>
                         </th>
-                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                        <th class="py-3 text-dark">Comentarios</th>
+                        <th class="table-fixed-column py-3 text-dark">Ver</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for person in persons %}
                         <tr {% if person.revisar %}class="table-warning"{% endif %}>
                             <td>
-                                <form action="{% url 'toggle_revisar_status' person.cedula %}" method="post" style="display: inline;">
+                                <form action="{% url 'toggle_revisar_status' person.cedula %}" method="post" class="d-inline">
                                     {% csrf_token %}
-                                    <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer;" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
-                                        <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}" style="padding-left: 20px;"></i>
+                                    <button type="submit" class="btn btn-sm btn-link p-0" title="{% if person.revisar %}Marcado para revisar{% else %}No marcado{% endif %}">
+                                        <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"></i>
                                     </button>
                                 </form>
                             </td>
@@ -5373,7 +5368,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' person.cedula %}" 
-                                   class="btn btn-custom-primary btn-sm"
+                                   class="btn btn-sm btn-outline-primary"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
                                 </a>
@@ -5381,7 +5376,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="9" class="text-center py-4">
+                            <td colspan="10" class="text-center py-4 text-muted">
                                 {% if request.GET.q or request.GET.status or request.GET.cargo or request.GET.compania %}
                                     Sin registros que coincidan con los filtros.
                                 {% else %}
@@ -5394,7 +5389,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </table>
         </div>
         
-        <!-- Pagination -->
         {% if page_obj.has_other_pages %}
         <div class="p-3">
             <nav aria-label="Page navigation">
@@ -5444,13 +5438,14 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 # conflicts template
 @'
 {% extends "master.html" %}
+{% load static %}
 
 {% block title %}Conflictos{% endblock %}
 {% block navbar_title %}Conflictos{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <a href="/" class="btn btn-custom-primary" title="DashBoard">
+<div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-custom-primary" title="Dashboard">
         <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
     </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
@@ -5862,28 +5857,31 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Tarjetas de Credito{% endblock %}
 
 {% block navbar_buttons %}
-<div>
+<div class="ms-auto d-flex align-items-center gap-2">
     <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+        <i class="fas fa-chart-pie"></i>
     </a>
     <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
         <i class="fas fa-users"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
+        <i class="fas fa-chart-line"></i>
+    </a>
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
+        <i class="far fa-credit-card"></i>
     </a>
     <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
+        <i class="fas fa-balance-scale"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
+            <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
         {% else %}
-            <span class="badge bg-secondary">0</span>
+            <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
         {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
+        <i class="fas fa-bell"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-database"></i> 
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -5915,10 +5913,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
 
             <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
-                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+                <button type="submit" class="btn btn-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-secondary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
             </div>
-            
         </form>
     </div>
 </div>
@@ -6040,7 +6037,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td class="table-fixed-column">
                                 {% if transaction.person and transaction.person.cedula %}
                                     <a href="{% url 'person_details' transaction.person.cedula %}"
-                                    class="btn btn-custom-primary btn-sm"
+                                    class="btn btn-primary btn-sm"
                                     title="View person details">
                                         <i class="bi bi-person-vcard-fill"></i>
                                     </a>
@@ -6051,7 +6048,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="18" class="text-center py-4"> {# Updated colspan to match the new number of columns #}
+                            <td colspan="18" class="text-center py-4">
                                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end or request.GET.category_filter %}
                                     Sin transacciones de tarjetas de credito que coincidan con los filtros.
                                 {% else %}
@@ -6063,49 +6060,48 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 </tbody>
             </table>
         </div>
-        
-        {% if page_obj.has_other_pages %}
-        <div class="p-3">
-            <nav aria-label="Page navigation">
-                <ul class="pagination justify-content-center">
-                    {% if page_obj.has_previous %}
-                        <li class="page-item">
-                            <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
-                                <span aria-hidden="true">&laquo;&laquo;</span>
-                            </a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
-                                <span aria-hidden="true">&laquo;</span>
-                            </a>
-                        </li>
-                    {% endif %}
-                    
-                    {% for num in page_obj.paginator.page_range %}
-                        {% if page_obj.number == num %}
-                            <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
-                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
-                            <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
-                        {% endif %}
-                    {% endfor %}
-                    
-                    {% if page_obj.has_next %}
-                        <li class="page-item">
-                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
-                                <span aria-hidden="true">&raquo;</span>
-                            </a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
-                                <span aria-hidden="true">&raquo;&raquo;</span>
-                            </a>
-                        </li>
-                    {% endif %}
-                </ul>
-            </nav>
-        </div>
-        {% endif %}
     </div>
+    {% if page_obj.has_other_pages %}
+    <div class="card-footer bg-light">
+        <nav>
+            <ul class="pagination justify-content-center mb-0">
+                {% if page_obj.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="First">
+                            <span aria-hidden="true">&laquo;&laquo;</span>
+                        </a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Previous">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+                
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                        <li class="page-item active"><a class="page-link" href="#">{{ num }}</a></li>
+                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                        <li class="page-item"><a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a></li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if page_obj.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Next">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" aria-label="Last">
+                            <span aria-hidden="true">&raquo;&raquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/tcs.html" -Encoding utf8
@@ -7714,32 +7710,32 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Alertas{% endblock %}
 
 {% block navbar_buttons %}
-<div>
+<div class="ms-auto d-flex align-items-center gap-2">
     <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
+        <i class="fas fa-chart-pie"></i>
     </a>
     <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
+        <i class="fas fa-chart-line"></i>
     </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
+    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+        <i class="far fa-credit-card"></i>
     </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
+    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos">
+        <i class="fas fa-balance-scale"></i>
     </a>
     <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
         {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
+            <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
         {% else %}
-            <span class="badge bg-secondary">0</span>
+            <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
         {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
+        <i class="fas fa-bell"></i>
     </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
+    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-database"></i> 
     </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
-        <i class="fas fa-file-excel" style="color: green;"></i>
+    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar">
+        <i class="fas fa-file-excel"></i>
     </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
@@ -7751,16 +7747,14 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% endblock %}
 
 {% block content %}
-<!-- Search Form (Optional, but good for consistency) -->
-<div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
+<div class="card mb-4 border-0 shadow">
     <div class="card-body">
         <form method="get" action="." class="row g-3 align-items-center">
-            <div class="d-flex align-items-center">
+            <div class="d-flex align-items-center mb-3 col-12">
                 <span class="badge bg-success">
                     {{ page_obj.paginator.count }} alertas
                 </span>
             </div>
-            <!-- General Search -->
             <div class="col-md-4">
                 <input type="text" 
                        name="q" 
@@ -7769,55 +7763,57 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                        value="{{ request.GET.q }}">
             </div>
             
-            <!-- Submit Buttons -->
             <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
-                <a href="." class="btn btn-custom-primary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+                <button type="submit" class="btn btn-primary btn-lg flex-grow-1" title="Filtrar"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-secondary btn-lg flex-grow-1" title="Limpiar"><i class="fas fa-undo"></i></a>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Persons Table -->
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
             <table class="table table-striped table-hover mb-0">
                 <thead class="table-fixed-header">
                     <tr>
-                        <th>Revisar</th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=revisar&sort_direction={% if current_order == 'revisar' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
+                                Revisar
+                            </a>
+                        </th>
+                        <th>
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cedula&sort_direction={% if current_order == 'cedula' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Cedula
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=nombre_completo&sort_direction={% if current_order == 'nombre_completo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Nombre
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=cargo&sort_direction={% if current_order == 'cargo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Cargo
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=correo&sort_direction={% if current_order == 'correo' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Correo
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=compania&sort_direction={% if current_order == 'compania' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Compania
                             </a>
                         </th>
                         <th>
-                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
+                            <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=estado&sort_direction={% if current_order == 'estado' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" class="link-dark text-decoration-none">
                                 Estado
                             </a>
                         </th>
-                        <th style="color: rgb(0, 0, 0);">Comentarios</th>
-                        <th class="table-fixed-column" style="color: rgb(0, 0, 0);">Ver</th>
+                        <th class="text-dark">Comentarios</th>
+                        <th class="table-fixed-column">Ver</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -7831,7 +7827,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                             class="btn btn-link p-0 border-0 bg-transparent" {# Style button to look like a clickable icon #}
                                             title="{% if person.revisar %}Desmarcar para Revisar{% else %}Marcar para Revisar{% endif %}">
                                         <i class="fas fa-{% if person.revisar %}check-square text-warning{% else %}square text-secondary{% endif %}"
-                                           style="padding-left: 20px; font-size: 1.25rem;"></i> {# Increased font-size for better clickability #}
+                                           style="font-size: 1.25rem;"></i>
                                     </button>
                                 </form>
                             </td>
@@ -7848,7 +7844,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ person.comments|truncatechars:30|default:"" }}</td>
                             <td class="table-fixed-column">
                                 <a href="{% url 'person_details' person.cedula %}" 
-                                   class="btn btn-custom-primary btn-sm"
+                                   class="btn btn-sm btn-outline-primary"
                                    title="View details">
                                     <i class="bi bi-person-vcard-fill"></i>
                                 </a>
@@ -7865,7 +7861,6 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </table>
         </div>
         
-        <!-- Pagination -->
         {% if page_obj.has_other_pages %}
         <div class="p-3">
             <nav aria-label="Page navigation">
@@ -7944,17 +7939,17 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 "@
 
     # Run migrations
-    python manage.py makemigrations core
-    python manage.py migrate
+    python3 manage.py makemigrations core
+    python3 manage.py migrate
 
     # Create superuser
-    #python manage.py createsuperuser
+    #python3 manage.py createsuperuser
 
-    python manage.py collectstatic --noinput
+    python3 manage.py collectstatic --noinput
 
     # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
-    python manage.py runserver
+    python3 manage.py runserver
 }
 
 arpa
