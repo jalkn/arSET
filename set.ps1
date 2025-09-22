@@ -448,7 +448,6 @@ class FinancialReportAdmin(admin.ModelAdmin):
 
 # Create urls.py for core app
 Set-Content -Path "core/urls.py" -Value @"
-# urls.py
 from django.contrib.auth import views as auth_views
 from django.urls import path
 from . import views
@@ -461,7 +460,7 @@ from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
                    export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs, import_categorias,
-                   tcs_list) 
+                   tcs_list, import_personas_tc) 
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -500,6 +499,7 @@ urlpatterns = [
     path('register/', register_superuser, name='register'),
     path('import/', ImportView.as_view(), name='import'),
     path('import/persons/', import_persons, name='import_persons'),
+    path('import/personas_tc/', import_personas_tc, name='import_personas_tc'),
     path('import/conflicts/', import_conflicts, name='import_conflicts'),
     path('import/finances/', import_finances, name='import_finances'),
     path('import/tcs/', import_tcs, name='import_tcs'),
@@ -706,7 +706,7 @@ def tcs_list(request):
     context = {}
     core_src_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
     tcs_excel_path = os.path.join(core_src_dir, 'tcs.xlsx')
-    personas_excel_path = os.path.join(core_src_dir, 'Personas.xlsx') # Assuming Personas.xlsx is also in core/src
+    personas_excel_path = os.path.join(core_src_dir, 'PersonasTC.xlsx') # Assuming PersonasTC.xlsx is also in core/src
 
     transactions_list = []
 
@@ -722,9 +722,9 @@ def tcs_list(request):
             tcs_df.columns = [col.strip().lower().replace(' ', '_').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('.', '') for col in tcs_df.columns]
             print(f"DEBUG: tcs_df columns STANDARDIZED: {tcs_df.columns.tolist()}")
 
-            # Read Personas.xlsx (if exists)
+            # Read PersonasTC.xlsx (if exists)
             personas_df = pd.DataFrame()
-            print(f"DEBUG: Checking for Personas.xlsx at {personas_excel_path}")
+            print(f"DEBUG: Checking for PersonasTC.xlsx at {personas_excel_path}")
             if os.path.exists(personas_excel_path):
                 try:
                     personas_df = pd.read_excel(personas_excel_path)
@@ -738,14 +738,14 @@ def tcs_list(request):
                         personas_df['cedula'] = personas_df['cedula'].apply(tcs.clean_cedula_format)
                         print("DEBUG: Personas 'cedula' column cleaned and standardized.")
                     else:
-                        print("WARNING: 'cedula' column not found in Personas.xlsx.")
+                        print("WARNING: 'cedula' column not found in PersonasTC.xlsx.")
                         
                 except Exception as e:
-                    messages.warning(request, f"Error loading Personas.xlsx for joining: {e}")
-                    print(f"ERROR: Loading Personas.xlsx: {e}")
+                    messages.warning(request, f"Error loading PersonasTC.xlsx for joining: {e}")
+                    print(f"ERROR: Loading PersonasTC.xlsx: {e}")
             else:
-                messages.warning(request, "Personas.xlsx not found. Person details might be missing.")
-                print("WARNING: Personas.xlsx not found.")
+                messages.warning(request, "PersonasTC.xlsx not found. Person details might be missing.")
+                print("WARNING: PersonasTC.xlsx not found.")
 
             # Apply the cleaning function to the 'cedula' column of tcs_df after reading
             if 'cedula' in tcs_df.columns:
@@ -1034,6 +1034,84 @@ def import_persons(request):
 
         return HttpResponseRedirect('/import/')
 
+    return HttpResponseRedirect('/import/')
+
+@login_required
+def import_personas_tc(request):
+    """View for importing PersonasTC data from Excel files."""
+    if request.method == 'POST' and request.FILES.get('excel_file'):
+        excel_file = request.FILES['excel_file']
+        try:
+            # Define the path to save the uploaded file
+            output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'PersonasTC.xlsx')
+            
+            with open(output_excel_path, 'wb+') as destination:
+                for chunk in excel_file.chunks():
+                    destination.write(chunk)
+
+            # Read the Excel file into a pandas DataFrame
+            df = pd.read_excel(output_excel_path)
+
+            # Strip whitespace and convert column names to lowercase for consistent mapping
+            df.columns = df.columns.str.strip().str.lower()
+
+            # Define column mapping from Excel columns to model fields
+            column_mapping = {
+                'id': 'id',
+                'nombre completo': 'nombre_completo',
+                'correo_normalizado': 'raw_correo',
+                'cedula': 'cedula',
+                'estado': 'estado',
+                'compania': 'compania',
+                'cargo': 'cargo',
+                'activo': 'activo',
+                'business unit': 'area',
+            }
+
+            # Rename columns based on the mapping
+            df = df.rename(columns=column_mapping)
+            
+            # Ensure 'estado' column exists
+            if 'activo' in df.columns and 'estado' not in df.columns:
+                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
+            elif 'estado' not in df.columns:
+                df['estado'] = 'Activo'
+            
+            # Convert 'cedula' to string type to prevent issues with mixed types
+            if 'cedula' in df.columns:
+                df['cedula'] = df['cedula'].astype(str)
+            else:
+                messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
+                return HttpResponseRedirect('/import/')
+            
+            # Convert nombre_completo to title case if it exists
+            if 'nombre_completo' in df.columns:
+                df['nombre_completo'] = df['nombre_completo'].str.title()
+
+            # Process 'raw_correo' to create 'correo' for the database
+            if 'raw_correo' in df.columns:
+                df['correo_to_use'] = df['raw_correo'].str.lower()
+            else:
+                df['correo_to_use'] = ''
+
+            # Iterate over the DataFrame and update/create Person objects in the database
+            for _, row in df.iterrows():
+                Person.objects.update_or_create(
+                    cedula=row['cedula'],
+                    defaults={
+                        'nombre_completo': row.get('nombre_completo', ''),
+                        'correo': row.get('correo_to_use', ''),
+                        'estado': row.get('estado', 'Activo'),
+                        'compania': row.get('compania', ''),
+                        'cargo': row.get('cargo', ''),
+                        'area': row.get('area', ''),
+                    }
+                )
+
+            messages.success(request, f'Archivo de personas TC importado exitosamente! {len(df)} registros procesados.')
+        except Exception as e:
+            messages.error(request, f'Error procesando archivo de personas TC: {str(e)}')
+            return HttpResponseRedirect('/import/')
     return HttpResponseRedirect('/import/')
 
 @login_required
@@ -1827,7 +1905,6 @@ def delete_comment(request, cedula, comment_index):
     
     return redirect('person_details', cedula=cedula)
 
-# Updated import_tcs function
 def import_tcs(request):
     if request.method == 'POST':
         pdf_files = request.FILES.getlist('visa_pdf_files')
@@ -1835,7 +1912,7 @@ def import_tcs(request):
 
         if not pdf_files:
             messages.error(request, 'No se seleccionaron archivos PDF.', extra_tags='import_tcs')
-            return redirect('import_page')
+            return redirect('import') # Updated from 'import_page'
 
         input_pdf_dir = os.path.join(settings.BASE_DIR, 'core', 'src', 'extractos')
         output_excel_dir = os.path.join(settings.BASE_DIR, 'core', 'src')
@@ -1955,7 +2032,7 @@ def import_tcs(request):
         else:
             messages.warning(request, 'No se pudieron guardar los archivos PDF para procesar.', extra_tags='import_tcs')
 
-    return redirect('import')
+    return redirect('import') # Updated from 'import_page'
 
 
 # Function for handling categorias.xlsx upload
@@ -3407,7 +3484,7 @@ from datetime import datetime
 
 # --- Configuration (can be modified by views.py) ---
 categorias_file = "" # Will be set dynamically
-cedulas_file = "" # This will now point to Personas.xlsx and be set dynamically
+cedulas_file = "" 
 pdf_password = ""
 
 
@@ -3498,14 +3575,14 @@ def load_categorias_data(base_dir):
     else:
         print(f"⚠️ Categorias file '{categorias_file}' not found. Categorization will not be available.")
 
-# --- Cedulas Data Loading (now for Personas.xlsx) ---
+# --- Cedulas Data Loading (now for PersonasTC.xlsx) ---
 cedulas_df = pd.DataFrame()
 cedulas_loaded = False
 
 # Modified to accept base_dir and reflect new filename/columns
 def load_cedulas_data(base_dir):
     global cedulas_df, cedulas_loaded, cedulas_file
-    cedulas_file = os.path.join(base_dir, "core", "src", "Personas.xlsx") # Changed filename here
+    cedulas_file = os.path.join(base_dir, "core", "src", "PersonasTC.xlsx") # Changed filename here
     if os.path.exists(cedulas_file):
         try:
             cedulas_df = pd.read_excel(cedulas_file)
@@ -3565,7 +3642,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
 
     load_trm_data() # This now loads from the hardcoded dictionary (monthly averages)
     load_categorias_data(base_dir) # Pass base_dir
-    load_cedulas_data(base_dir) # Pass base_dir (now loading Personas.xlsx)
+    load_cedulas_data(base_dir) # Pass base_dir (now loading PersonasTC.xlsx)
 
     if os.path.exists(input_base_folder):
         for archivo in sorted(os.listdir(input_base_folder)):
@@ -3791,7 +3868,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
 
         # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
         # This column will still be named 'Tarjetahabiente' in the dataframe derived from PDFs,
-        # but we'll merge it with the 'NOMBRE COMPLETO' from Personas.xlsx
+        # but we'll merge it with the 'NOMBRE COMPLETO' from PersonasTC.xlsx
         df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
 
         # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
@@ -3836,14 +3913,14 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
             df_resultado_final['Subcategoría'] = ''
             df_resultado_final['Zona'] = ''
 
-        # Merge with cedulas_df (now Personas.xlsx) if loaded
+        # Merge with cedulas_df (now PersonasTC.xlsx) if loaded
         if cedulas_loaded:
-            print("Merging all results with Personas.xlsx...")
+            print("Merging all results with PersonasTC.xlsx...")
             # Ensure the 'Cedula' column in df_resultado_final is also clean before merge
-            # This is crucial for accurate merging when Personas.xlsx has already been cleaned.
-            if 'Cedula' in cedulas_df.columns: # Check if 'Cedula' exists in the loaded Personas.xlsx
-                # Temporarily add a 'Cedula_PDF' column to df_resultado_final to store the cleaned Cedula from Personas.xlsx
-                # This ensures we get the *correctly formatted* Cedula from Personas.xlsx during the merge.
+            # This is crucial for accurate merging when PersonasTC.xlsx has already been cleaned.
+            if 'Cedula' in cedulas_df.columns: # Check if 'Cedula' exists in the loaded PersonasTC.xlsx
+                # Temporarily add a 'Cedula_PDF' column to df_resultado_final to store the cleaned Cedula from PersonasTC.xlsx
+                # This ensures we get the *correctly formatted* Cedula from PersonasTC.xlsx during the merge.
                 # We'll use 'Tarjetahabiente' as the join key as that's what's derived from PDFs.
                 temp_merge_df = pd.merge(
                     df_resultado_final,
@@ -3854,14 +3931,14 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                     suffixes=('', '_from_personas') # Suffix to avoid column name conflicts
                 )
 
-                # Now, transfer the cleaned 'Cedula' from Personas.xlsx to the main DataFrame
+                # Now, transfer the cleaned 'Cedula' from PersonasTC.xlsx to the main DataFrame
                 # If a match was found, use the 'Cedula_from_personas', otherwise, keep the existing (or empty) 'Cedula'
                 # If 'Cedula' doesn't exist in df_resultado_final yet, create it.
                 if 'Cedula' not in df_resultado_final.columns:
-                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna('') # Use Cedula from Personas.xlsx
+                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna('') # Use Cedula from PersonasTC.xlsx
                 else:
                     # If 'Cedula' already exists in df_resultado_final (e.g., from PDF parsing),
-                    # prioritize the one from Personas.xlsx if a match was found.
+                    # prioritize the one from PersonasTC.xlsx if a match was found.
                     df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna(df_resultado_final['Cedula'])
 
                 # Transfer 'CARGO' as well
@@ -3881,13 +3958,13 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                     temp_merge_df.drop(columns=['NOMBRE COMPLETO_from_personas'], errors='ignore', inplace=True)
                     
             else:
-                print("WARNING: 'Cedula' column not found in Personas.xlsx during merge in tcs.py.")
+                print("WARNING: 'Cedula' column not found in PersonasTC.xlsx during merge in tcs.py.")
                 df_resultado_final['Cedula'] = ''
                 df_resultado_final['CARGO'] = ''
                 df_resultado_final['AREA'] = ''
 
         else:
-            # Add empty columns if Personas.xlsx was not loaded
+            # Add empty columns if PersonasTC.xlsx was not loaded
             df_resultado_final['Cedula'] = ''
             df_resultado_final['CARGO'] = '' # Changed from 'Cargo'
             df_resultado_final['AREA'] = ''
@@ -4609,7 +4686,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3">
         <a href="{% url 'conflict_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
             <div class="card-body text-center p-4">
-                <i class="fas fa-balance-scale fa-3x text-info mb-3"></i>
+                <i class="fas fa-balance-scale fa-3x text-warning mb-3"></i>
                 <h5 class="card-title fw-normal mb-1">Declaraciones de Conflictos</h5>
                 <h2 class="card-text fw-bold text-dark">{{ conflict_count|intcomma }}</h2>
             </div>
@@ -4627,7 +4704,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3">
         <a href="{% url 'tcs_list' %}" class="card h-100 shadow-sm border-0 text-decoration-none">
             <div class="card-body text-center p-4">
-                <i class="far fa-credit-card fa-3x text-warning mb-3"></i>
+                <i class="far fa-credit-card fa-3x text-info mb-3"></i>
                 <h5 class="card-title fw-normal mb-1">Tarjetas de Credito</h5>
                 <h2 class="card-text fw-bold text-dark">{{ tc_count|intcomma }}</h2>
             </div>
@@ -4654,7 +4731,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <div class="col-md-3">
         <a href="{% url 'conflict_list' %}?column=q3&answer=yes" class="card h-100 shadow-sm border-0 text-decoration-none">
             <div class="card-body text-center p-4">
-                <i class="fas fa-handshake fa-3x text-success mb-3"></i>
+                <i class="fas fa-handshake fa-3x text-warning mb-3"></i>
                 <h5 class="card-title fw-normal mb-1">Accionista del Grupo</h5>
                 <h2 class="card-text fw-bold text-dark">{{ accionista_grupo_count|intcomma }}</h2> 
             </div>
@@ -4939,40 +5016,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Importar Datos{% endblock %}
 
 {% block navbar_buttons %}
-<div class="ms-auto d-flex align-items-center gap-2">
-    <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie"></i>
-    </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
-        <i class="fas fa-users"></i>
-    </a>
-    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card"></i>
-    </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
-        <i class="fas fa-balance-scale"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
-        {% endif %}
-        <i class="fas fa-bell"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
-        <i class="fas fa-database"></i> 
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="/" class="btn btn-custom-primary" title="Dashboard">
+    <i class="fas fa-chart-pie"></i>
+</a>
+<a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
+    <i class="fas fa-users"></i>
+</a>
+<a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+    <i class="fas fa-chart-line"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
+    <i class="fas fa-balance-scale"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
+    {% else %}
+        <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i> 
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
@@ -5015,7 +5090,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% csrf_token %}
                     <div class="upload-form mb-2">
                         <input type="file" class="form-control form-control-sm" name="excel_file" required>
-                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
                             <i class="fas fa-upload"></i>
                         </button>
                     </div>
@@ -5028,17 +5103,18 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
         </div>
     </div>
-    
     <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
         <div class="card h-100 border-0 shadow text-center">
             <div class="card-body pb-0">
                 <i class="fas fa-balance-scale fa-3x text-warning mb-2"></i>
-                <h5 class="card-title">Conflictos</h5>
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_conflicts' %}">
+                <h5 class="card-title">Decl. de Conflictos</h5>
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_conflicts' %}"
+                      id="conflicts-form" class="position-relative">
                     {% csrf_token %}
                     <div class="upload-form mb-2">
-                        <input type="file" class="form-control form-control-sm" name="conflict_excel_file" required>
-                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                        <input type="file" class="form-control form-control-sm" name="conflict_excel_file" required
+                               accept=".xlsx, .xls">
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
                             <i class="fas fa-upload"></i>
                         </button>
                     </div>
@@ -5046,12 +5122,11 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
             <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
                 <span class="badge bg-success">
-                    {{ conflict_count }} Registradas
+                    {{ conflict_count }} Registrados
                 </span>
             </div>
         </div>
     </div>
-
     <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
         <div class="card h-100 border-0 shadow text-center">
             <div class="card-body pb-0">
@@ -5061,7 +5136,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                     {% csrf_token %}
                     <div class="upload-form mb-2">
                         <input type="file" class="form-control form-control-sm" name="finances_file" required>
-                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
                             <i class="fas fa-upload"></i>
                         </button>
                     </div>
@@ -5077,17 +5152,62 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
         </div>
     </div>
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-users fa-3x text-info mb-2"></i>
+                <h5 class="card-title">PersonasTC</h5>
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_personas_tc' %}">
+                    {% csrf_token %}
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="excel_file" required>
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ personas_tc_count }} Registradas
+                </span>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
+        <div class="card h-100 border-0 shadow text-center">
+            <div class="card-body pb-0">
+                <i class="fas fa-book fa-3x text-info mb-2"></i>
+                <h5 class="card-title">Categorias</h5>
+                <form method="post" enctype="multipart/form-data" action="{% url 'import_categorias' %}" id="categorias-form">
+                    {% csrf_token %}
+                    <div class="upload-form mb-2">
+                        <input type="file" class="form-control form-control-sm" name="categorias_excel_file" required
+                               accept=".xlsx, .xls">
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
+                            <i class="fas fa-upload"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                <span class="badge bg-success">
+                    {{ categorias_count }} Registradas
+                </span>
+            </div>
+        </div>
+    </div>
 
     <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
         <div class="card h-100 border-0 shadow text-center">
             <div class="card-body pb-0">
                 <i class="far fa-credit-card fa-3x text-info mb-2"></i>
-                <h5 class="card-title">Tarjetas</h5>
+                <h5 class="card-title">Tarjetasde Credito</h5>
                 <form method="post" enctype="multipart/form-data" action="{% url 'import_tcs' %}">
                     {% csrf_token %}
                     <div class="upload-form mb-2">
                         <input type="file" class="form-control form-control-sm" name="visa_pdf_files" multiple accept=".pdf" required>
-                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
+                        <button type="submit" class="btn btn-secondary btn-sm upload-btn" title="Subir archivo">
                             <i class="fas fa-upload"></i>
                         </button>
                     </div>
@@ -5103,60 +5223,35 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
             </div>
         </div>
     </div>
-    
-    <div class="col-lg-2 col-md-4 col-sm-6 mb-4">
-        <div class="card h-100 border-0 shadow text-center">
-            <div class="card-body pb-0">
-                <i class="fas fa-tags fa-3x text-secondary mb-2"></i>
-                <h5 class="card-title">Categorías</h5>
-                <form method="post" enctype="multipart/form-data" action="{% url 'import_categorias' %}">
-                    {% csrf_token %}
-                    <div class="upload-form mb-2">
-                        <input type="file" class="form-control form-control-sm" name="categorias_excel_file" accept=".xlsx,.xls" required>
-                        <button type="submit" class="btn btn-primary btn-sm upload-btn" title="Subir archivo">
-                            <i class="fas fa-upload"></i>
-                        </button>
-                    </div>
-                </form>
-            </div>
-            <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
-                <span class="badge bg-success">
-                    {{ categorias_count }} Registradas
-                </span>
-            </div>
-        </div>
-    </div>
 </div>
 
-<div class="row">
-    <div class="col-12">
+<div class="row g-3 mb-1">
+    <div class="col-lg-12">
         <div class="card h-100 border-0 shadow">
-            <div class="card-header bg-light">
-                <h5 class="mb-0">Resultados del Analisis</h5>
+            <div class="card-header bg-white border-0">
+                <h5 class="card-title mb-0">Estado de Archivos Procesados</h5>
             </div>
             <div class="card-body">
                 {% if analysis_results %}
                 <div class="table-responsive">
-                    <table class="table table-sm table-striped table-hover mb-0">
+                    <table class="table table-striped table-hover mb-0">
                         <thead>
                             <tr>
-                                <th>Archivo Generado</th>
-                                <th>Registros</th>
-                                <th>Estado</th>
-                                <th>Ultima Actualizacion</th>
+                                <th scope="col">Archivo</th>
+                                <th scope="col" class="text-end">Registros</th>
+                                <th scope="col">Estado</th>
+                                <th scope="col">Ultima Actualizacion</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for result in analysis_results %}
                             <tr>
                                 <td>{{ result.filename }}</td>
-                                <td>{{ result.records|default:"-" }}</td>
+                                <td class="text-end">{{ result.records }}</td>
                                 <td>
-                                    <span class="badge bg-{% if result.status == 'success' %}success{% elif result.status == 'error' %}danger{% else %}secondary{% endif %}">
+                                    <span class="badge {% if result.status == 'success' %}bg-success{% elif result.status == 'error' %}bg-danger{% else %}bg-secondary{% endif %}">
                                         {% if result.status == 'success' %}
                                             Exitoso
-                                        {% elif result.status == 'pending' %}
-                                            Pendiente
                                         {% elif result.status == 'error' %}
                                             Error
                                         {% else %}
@@ -5444,40 +5539,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Conflictos{% endblock %}
 
 {% block navbar_buttons %}
-<div class="ms-auto d-flex align-items-center gap-2">
-    <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
-    </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
-        <i class="fas fa-users"></i>
-    </a>
-    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary">0</span>
-        {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
-        <i class="fas fa-database"></i>
-    </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
-        <i class="fas fa-file-excel" style="color: green;"></i>
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="/" class="btn btn-custom-primary" title="Dashboard">
+    <i class="fas fa-chart-pie"></i>
+</a>
+<a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
+    <i class="fas fa-users"></i>
+</a>
+<a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+    <i class="fas fa-chart-line"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle">{{ alerts_count }}</span>
+    {% else %}
+        <span class="badge rounded-pill bg-secondary position-absolute top-0 start-100 translate-middle">0</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i> 
+</a>
+<a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
+    <i class="fas fa-file-excel"></i>
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
@@ -6116,40 +6209,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}Bienes y Rentas{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
-    </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
-        <i class="fas fa-users"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
-    </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary">0</span>
-        {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
-        <i class="fas fa-database"></i> 
-    </a>
-    <a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
-        <i class="fas fa-file-excel" style="color: green;"></i> 
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="/" class="btn btn-custom-primary" title="Dashboard">
+    <i class="fas fa-chart-pie"></i>
+</a>
+<a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
+    <i class="fas fa-users"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos">
+    <i class="fas fa-balance-scale"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle">{{ alerts_count }}</span>
+    {% else %}
+        <span class="badge rounded-pill bg-secondary position-absolute top-0 start-100 translate-middle">0</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i> 
+</a>
+<a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
+    <i class="fas fa-file-excel"></i>
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
@@ -7170,44 +7261,38 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block navbar_title %}{{ myperson.nombre_completo }}{% endblock %}
 
 {% block navbar_buttons %}
-<div>
-    <!--
-    <a href="/admin/core/person/{{ myperson.cedula }}/change/" class="btn btn-outline-dark" title="Admin">
-        <i class="fas fa-pencil-alt"></i>
-    </a>-->
-    <a href="/" class="btn btn-custom-primary" title="Dashboard">
-        <i class="fas fa-chart-pie" style="color: rgb(255, 111, 0);"></i>
-    </a>
-    <a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
-        <i class="fas fa-users"></i>
-    </a>
-    <a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
-        <i class="fas fa-chart-line" style="color: green;"></i>
-    </a>
-    <a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
-        <i class="far fa-credit-card" style="color: blue;"></i>
-    </a>
-    <a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes">
-        <i class="fas fa-balance-scale" style="color: orange;"></i>
-    </a>
-    <a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
-        {% if alerts_count > 0 %}
-            <span class="badge bg-danger">{{ alerts_count }}</span>
-        {% else %}
-            <span class="badge bg-secondary">0</span>
-        {% endif %}
-        <i class="fas fa-bell" style="color: red;"></i>
-    </a>
-    <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar datos">
-        <i class="fas fa-database"></i> 
-    </a>
-    <form method="post" action="{% url 'logout' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </form>
-</div>
+<a href="/" class="btn btn-custom-primary" title="Dashboard">
+    <i class="fas fa-chart-pie"></i>
+</a>
+<a href="{% url 'person_list' %}" class="btn btn-custom-primary" title="Personas">
+    <i class="fas fa-users"></i>
+</a>
+<a href="{% url 'financial_report_list' %}" class="btn btn-custom-primary" title="Bienes y Rentas">
+    <i class="fas fa-chart-line"></i>
+</a>
+<a href="{% url 'tcs_list' %}" class="btn btn-custom-primary" title="Tarjetas de credito">
+    <i class="far fa-credit-card"></i>
+</a>
+<a href="{% url 'conflict_list' %}" class="btn btn-custom-primary" title="Conflictos de Interes"> 
+    <i class="fas fa-balance-scale"></i>
+</a>
+<a href="{% url 'alerts_list' %}" class="btn btn-custom-primary" title="Alertas">
+    {% if alerts_count > 0 %}
+        <span class="badge bg-danger position-absolute top-0 start-100 translate-middle rounded-pill">{{ alerts_count }}</span>
+    {% else %}
+        <span class="badge bg-secondary position-absolute top-0 start-100 translate-middle rounded-pill">0</span>
+    {% endif %}
+    <i class="fas fa-bell"></i>
+</a>
+<a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
+    <i class="fas fa-database"></i> 
+</a>
+<form method="post" action="{% url 'logout' %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
+        <i class="fas fa-sign-out-alt"></i>
+    </button>
+</form>
 {% endblock %}
 
 {% block content %}
