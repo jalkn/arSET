@@ -4,6 +4,7 @@ function arpa {
     )
 
     $YELLOW = [ConsoleColor]::Yellow
+    
     $GREEN = [ConsoleColor]::Green
 
     Write-Host "🚀 Creating ARPA" -ForegroundColor $YELLOW
@@ -511,9 +512,10 @@ urlpatterns = [
     path('alerts/', alerts_list, name='alerts_list'),
     path('persons/<str:cedula>/toggle_revisar/', views.toggle_revisar_status, name='toggle_revisar_status'),
     path('persons/<str:cedula>/save_comment/', save_comment, name='save_comment'),
-    path('persons/<str:cedula>/delete_comment/', delete_comment, name='delete_comment'),
-    path('conflicts/', conflict_list, name='conflict_list'),
+    path('persons/<str:cedula>/delete_comment/<int:comment_index>/', delete_comment, name='delete_comment'),
     path('tcs/', tcs_list, name='tcs_list'), 
+    path('conflicts/', conflict_list, name='conflict_list'),
+    
 ]
 "@
 
@@ -677,6 +679,7 @@ class ImportView(LoginRequiredMixin, TemplateView):
 
 
         # --- Status for Nets.py output files ---
+        analysis_results.append(get_file_status('PersonasTC.xlsx'))
         analysis_results.append(get_file_status('bankNets.xlsx'))
         analysis_results.append(get_file_status('debtNets.xlsx'))
         analysis_results.append(get_file_status('goodNets.xlsx'))
@@ -954,7 +957,7 @@ def import_persons(request):
                 'compania': 'compania',
                 'cargo': 'cargo',
                 'activo': 'activo',
-                'BUSINESS UNIT': 'area',
+                'business unit': 'area', # <-- CORREGIDO: ahora coincide con la columna en minúsculas
             }
 
             # Rename columns based on the mapping
@@ -1037,70 +1040,90 @@ def import_persons(request):
     return HttpResponseRedirect('/import/')
 
 @login_required
+@require_POST
 def import_personas_tc(request):
-    """View for importing PersonasTC data from Excel files."""
-    if request.method == 'POST' and request.FILES.get('excel_file'):
-        excel_file = request.FILES['excel_file']
+    """
+    Handles the upload and processing of the PersonasTC.xlsx file.
+    Updates Person records in the database and saves a clean version of the Excel file
+    con la columna 'NOMBRE COMPLETO'.
+    """
+    if request.method == 'POST':
+        if 'excel_file' not in request.FILES: 
+            messages.error(request, 'No se seleccionó ningún archivo de personas.', extra_tags='import_personas_tc')
+            return redirect('import')
+
+        uploaded_file = request.FILES['excel_file'] 
+        file_name = "PersonasTC.xlsx"
+
+        # Define el directorio de destino (ej. core/src) y guarda el archivo
+        target_directory = os.path.join(settings.BASE_DIR, "core", "src")
+        os.makedirs(target_directory, exist_ok=True)
+        file_path = os.path.join(target_directory, file_name)
+
         try:
-            # Define the path to save the uploaded file
-            output_excel_path = os.path.join(settings.BASE_DIR, 'core', 'src', 'PersonasTC.xlsx')
-            
-            with open(output_excel_path, 'wb+') as destination:
-                for chunk in excel_file.chunks():
+            # Guarda el archivo cargado
+            with open(file_path, 'wb+') as destination:
+                for chunk in uploaded_file.chunks():
                     destination.write(chunk)
 
-            # Read the Excel file into a pandas DataFrame
-            df = pd.read_excel(output_excel_path)
+            # 1. Leer el archivo Excel
+            df = pd.read_excel(file_path)
 
-            # Strip whitespace and convert column names to lowercase for consistent mapping
+            # 2. Normalizar encabezados (minúsculas y sin espacios iniciales/finales)
             df.columns = df.columns.str.strip().str.lower()
-
-            # Define column mapping from Excel columns to model fields
-            column_mapping = {
-                'id': 'id',
-                'nombre completo': 'nombre_completo',
-                'correo_normalizado': 'raw_correo',
-                'cedula': 'cedula',
-                'estado': 'estado',
-                'compania': 'compania',
-                'cargo': 'cargo',
-                'activo': 'activo',
-                'business unit': 'area',
-            }
-
-            # Rename columns based on the mapping
-            df = df.rename(columns=column_mapping)
             
-            # Ensure 'estado' column exists
-            if 'activo' in df.columns and 'estado' not in df.columns:
-                df['estado'] = df['activo'].apply(lambda x: 'Activo' if x else 'Retirado')
-            elif 'estado' not in df.columns:
+            # --- START: Transformaciones de Datos ---
+            
+            # 3. CONCATENACIÓN: Crear la columna 'nombre_completo'
+            name_columns = ['first name', 'middle name', 'last name', 'second last name']
+            
+            def create_full_name(row):
+                """Concatena los nombres, ignorando valores NaN y espacios en blanco."""
+                parts = []
+                for col in name_columns:
+                    if col in row.index and pd.notna(row[col]):
+                        parts.append(str(row[col]).strip())
+                return ' '.join(parts).strip()
+
+            df['nombre_completo'] = df.apply(create_full_name, axis=1)
+
+            # 4. DEFAULT: Crear la columna 'estado' si no existe y poner 'Activo'
+            if 'estado' not in df.columns:
                 df['estado'] = 'Activo'
             
-            # Convert 'cedula' to string type to prevent issues with mixed types
-            if 'cedula' in df.columns:
-                df['cedula'] = df['cedula'].astype(str)
-            else:
-                messages.error(request, "Error: 'Cedula' column not found in the Excel file.")
-                return HttpResponseRedirect('/import/')
+            # 5. Mapeo de columnas (del Excel normalizado al campo del modelo/interno)
+            user_requested_mapping = {
+                'person id': 'id_temp',      
+                'national id': 'cedula',     
+                'company': 'compania',
+                'job title': 'cargo',
+                'business unit': 'area', 
+                'correo': 'raw_correo',      
+                'estado': 'estado',
+            }
+
+            final_mapping = {excel_col: model_field for excel_col, model_field in user_requested_mapping.items() if excel_col in df.columns}
+            df.rename(columns=final_mapping, inplace=True)
             
-            # Convert nombre_completo to title case if it exists
-            if 'nombre_completo' in df.columns:
-                df['nombre_completo'] = df['nombre_completo'].str.title()
-
-            # Process 'raw_correo' to create 'correo' for the database
             if 'raw_correo' in df.columns:
-                df['correo_to_use'] = df['raw_correo'].str.lower()
-            else:
-                df['correo_to_use'] = ''
+                df.rename(columns={'raw_correo': 'correo'}, inplace=True)
 
-            # Iterate over the DataFrame and update/create Person objects in the database
-            for _, row in df.iterrows():
+            # 6. Preparar DataFrame para guardar en la BD y Excel
+            model_fields = ['cedula', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'area']
+            
+            df_to_save = df[[col for col in model_fields if col in df.columns]].copy()
+            
+            df_to_save.dropna(subset=['cedula'], inplace=True)
+            
+            # --- END: Transformaciones de Datos ---
+
+            # 7. Lógica de guardado en la Base de Datos (Update or Create)
+            for index, row in df_to_save.iterrows():
                 Person.objects.update_or_create(
-                    cedula=row['cedula'],
+                    cedula=str(row['cedula']).strip(),
                     defaults={
                         'nombre_completo': row.get('nombre_completo', ''),
-                        'correo': row.get('correo_to_use', ''),
+                        'correo': row.get('correo', ''),
                         'estado': row.get('estado', 'Activo'),
                         'compania': row.get('compania', ''),
                         'cargo': row.get('cargo', ''),
@@ -1108,11 +1131,26 @@ def import_personas_tc(request):
                     }
                 )
 
-            messages.success(request, f'Archivo de personas TC importado exitosamente! {len(df)} registros procesados.')
+            # --- NUEVA LÓGICA: Guardar el DataFrame modificado en un archivo Excel ---
+            
+            # Asegurarse de que las columnas deseadas existan antes de seleccionarlas
+            output_columns = ['cedula', 'nombre_completo', 'correo', 'estado', 'compania', 'cargo', 'area']
+            df_output = df_to_save[[col for col in output_columns if col in df_to_save.columns]].copy()
+            
+            # Renombrar la columna 'nombre_completo' a 'NOMBRE COMPLETO' para el archivo de salida
+            if 'nombre_completo' in df_output.columns:
+                df_output.rename(columns={'nombre_completo': 'NOMBRE COMPLETO'}, inplace=True)
+                
+            df_output.to_excel(file_path, index=False)
+            
+            # --- FIN de la nueva lógica ---
+
+            messages.success(request, f'Archivo \"{file_name}\" importado y datos de {len(df_to_save)} personas actualizados correctamente. Archivo de salida con NOMBRE COMPLETO generado.', extra_tags='import_personas_tc')
+            
         except Exception as e:
-            messages.error(request, f'Error procesando archivo de personas TC: {str(e)}')
-            return HttpResponseRedirect('/import/')
-    return HttpResponseRedirect('/import/')
+            messages.error(request, f'Error al importar el archivo de personas: {e}', extra_tags='import_personas_tc')
+            
+    return redirect('import')
 
 @login_required
 def import_conflicts(request):
@@ -4025,6 +4063,198 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
         print("\n⚠️ No se extrajo ningún dato de los archivos PDF (MC o VISA).")
 "@
 
+# Create clara.py
+Set-Content -Path "core/clara.py" -Value @"
+import PyPDF2
+import pandas as pd
+import re
+import datetime
+import locale
+from PyPDF2.errors import PdfReadError
+
+def extract_and_parse_data(pdf_path):
+    """
+    Extracts and parses transaction data from a PDF file, grouped by card.
+
+    Args:
+        pdf_path (str): The file path to the PDF.
+
+    Returns:
+        list: A list of lists, where each inner list is a row of parsed data
+              with card details included.
+    """
+    parsed_rows = []
+
+    try:
+        # Set the locale to Spanish for date formatting
+        try:
+            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+        except locale.Error:
+            print("Warning: Spanish locale not found. Falling back to default.")
+            try:
+                locale.setlocale(locale.LC_TIME, 'es_ES')
+            except locale.Error:
+                pass
+
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+
+            for page_number, page in enumerate(reader.pages, 1):
+                full_text = page.extract_text()
+                
+                # Regex to capture the entire card block.
+                card_block_pattern = re.compile(
+                    r'(Tarjeta\s+\*\s*\d{4}.*?)(?=Tarjeta\s+\*|\Z)',
+                    re.IGNORECASE | re.DOTALL
+                )
+                
+                # Regex to extract details from the card header.
+                card_details_pattern = re.compile(
+                    r'Tarjeta\s+\*\s*(\d{4})\s+·\s+(Virtual|Física)\s+(.*?)\s+·\s+ID\s+\d{8}',
+                    re.IGNORECASE | re.DOTALL
+                )
+
+                # Find all card blocks in the text of the current page
+                card_blocks = card_block_pattern.findall(full_text)
+
+                for block_text in card_blocks:
+                    card_details = card_details_pattern.search(block_text)
+                    
+                    if card_details:
+                        card_number = card_details.group(1)
+                        card_type = card_details.group(2)
+                        cardholder_name = card_details.group(3).strip()
+                        
+                        print(f"--- Found Card Block for {cardholder_name} ({card_number}) ---")
+                        
+                        # Regex to capture transaction line with both primary and secondary values
+                        transaction_line_pattern = re.compile(
+                            r'(\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{2})\s+'
+                            r'(.*?)\s+'
+                            r'(\d{6})\s*'
+                            r'(\$?[\d\.,]+)\s*(?:([\d\.,]+)?\s*(\bUSD\b|\bEUR\b|\bPEN\b)?)?',
+                            re.IGNORECASE | re.MULTILINE
+                        )
+                        
+                        # Find all transactions within this specific card block
+                        transactions = transaction_line_pattern.findall(block_text)
+                        
+                        if not transactions:
+                            print(f"No transactions found for {cardholder_name} ({card_number}) on page {page_number}.")
+                        
+                        for transaction in transactions:
+                            date = transaction[0].strip()
+                            description = transaction[1].strip()
+                            auth_num = transaction[2].strip()
+                            
+                            primary_value = transaction[3].strip()
+                            secondary_value = transaction[4].strip()
+                            moneda = transaction[5].strip() if transaction[5] else "COP"
+
+                            valor_cop = primary_value
+
+                            if secondary_value:
+                                valor_original = secondary_value
+                            else:
+                                valor_original = primary_value
+
+                            try:
+                                date_obj = datetime.datetime.strptime(date, '%d %b %y')
+                                day_of_week = date_obj.strftime('%A').title()
+                                year = date_obj.year
+                            except ValueError:
+                                day_of_week = "N/A"
+                                year = "N/A"
+                            
+                            formatted_card_type = f"Clara {card_type}"
+
+                            parsed_rows.append([
+                                date,
+                                day_of_week,
+                                year,
+                                description,
+                                auth_num,
+                                valor_original,
+                                moneda,
+                                valor_cop,
+                                formatted_card_type,
+                                card_number,
+                                cardholder_name,
+                                pdf_path,
+                                page_number
+                            ])
+    except FileNotFoundError:
+        print(f"Error: The file '{pdf_path}' was not found.")
+        return []
+    except PdfReadError as e:
+        print(f"Error: Could not read '{pdf_path}'. The file might be corrupted or encrypted.")
+        print(f"PyPDF2 error: {e}")
+        return []
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return []
+
+    if not parsed_rows:
+        print("No transaction data was found in the PDF. Please check the file and the data format.")
+    
+    return parsed_rows
+
+def save_data_to_excel(df, output_excel_path):
+    """
+    Saves a pandas DataFrame to an Excel file with all required columns.
+    """
+    if df.empty:
+        print("No data to save.")
+        return
+
+    df.to_excel(output_excel_path, index=False)
+    print(f"Successfully saved {len(df)} rows to '{output_excel_path}' under the following columns:")
+    for col in df.columns:
+        print(f" - {col}")
+    print(f"Output file: {output_excel_path}")
+
+def read_personas_excel(excel_path):
+    """
+    Reads the Personas.xlsx file into a DataFrame.
+    """
+    try:
+        personas_df = pd.read_excel(excel_path)
+        return personas_df
+    except FileNotFoundError:
+        print(f"Error: The file '{excel_path}' was not found.")
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"An unexpected error occurred while reading '{excel_path}': {e}")
+        return pd.DataFrame()
+
+if __name__ == "__main__":
+    pdf_file_name = "clara.pdf"
+    excel_file_name = "Clara.xlsx"
+    personas_file_name = "Personas.xlsx"
+    
+    column_headers = ["Fecha Transacción", "Día", "Año", "Descripción", "Número de Autorización", "Valor Original", "Moneda", "Valor COP", "Tipo de Tarjeta", "Número de Tarjeta", "Tarjetahabiente", "Archivo", "Página"]
+
+    extracted_data = extract_and_parse_data(pdf_file_name)
+
+    if extracted_data:
+        df_clara = pd.DataFrame(extracted_data, columns=column_headers)
+
+        df_personas = read_personas_excel(personas_file_name)
+
+        if not df_personas.empty:
+            final_df = pd.merge(df_clara, df_personas[['NOMBRE COMPLETO', 'Cedula', 'Compania', 'CARGO', 'AREA']], 
+                                how='left', left_on='Tarjetahabiente', right_on='NOMBRE COMPLETO')
+            
+            final_df.drop('NOMBRE COMPLETO', axis=1, inplace=True)
+
+            save_data_to_excel(final_df, excel_file_name)
+        else:
+            print("Could not read 'Personas.xlsx'. Saving only PDF data.")
+            save_data_to_excel(df_clara, excel_file_name)
+    else:
+        print("No transaction data was found in the PDF. Please check the file and the data format.")
+"@
+
 # Update project urls.py with proper admin configuration
 Set-Content -Path "arpa/urls.py" -Value @"
 from django.contrib import admin
@@ -5989,7 +6219,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 {% block content %}
 <div class="card mb-4 border-0 shadow" style="background-color:rgb(224, 224, 224);">
     <div class="card-body">
-        <form method="get" action="." class="row g-3 align-items-center">
+        <form method="get" action="." class="row g-3 align-items-center" id="filter-form">
             <div class="d-flex align-items-center">
                 <span class="badge bg-success">
                     {{ page_obj.paginator.count }} registros
@@ -5997,17 +6227,43 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end %}
                 {% endif %}
             </div>
-            <div class="col-md-4">
+            
+            <div class="col-md-3">
                 <input type="text" 
                        name="q" 
                        class="form-control form-control-lg" 
                        placeholder="Buscar cualquier valor..." 
-                       value="{{ request.GET.q }}">
+                       value="{{ request.GET.q }}"
+                       id="global-search-input">
             </div>
 
+            <div class="col-md-2">
+                <select class="form-select form-select-lg" id="cardtype-filter-select">
+                    <option value="">Tipo Tarjeta</option>
+                    </select>
+            </div>
+            
+            <div class="col-md-2">
+                <select class="form-select form-select-lg" id="category-filter-select">
+                    <option value="">Categoria</option>
+                    </select>
+            </div>
+            
+            <div class="col-md-2">
+                <select class="form-select form-select-lg" id="subcategory-filter-select">
+                    <option value="">Subcategoría</option>
+                    </select>
+            </div>
+
+            <div class="col-md-1">
+                <select class="form-select form-select-lg" id="zona-filter-select">
+                    <option value="">Zona</option>
+                    </select>
+            </div>
+            
             <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-primary btn-lg flex-grow-1"><i class="fas fa-filter"></i></button>
-                <a href="." class="btn btn-secondary btn-lg flex-grow-1"><i class="fas fa-undo"></i></a>
+                <button type="submit" class="btn btn-primary btn-lg flex-grow-1" title="Aplicar filtros de formulario"><i class="fas fa-filter"></i></button>
+                <a href="." class="btn btn-secondary btn-lg flex-grow-1" title="Quitar todos los filtros"><i class="fas fa-undo"></i></a>
             </div>
         </form>
     </div>
@@ -6016,7 +6272,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 <div class="card border-0 shadow">
     <div class="card-body p-0">
         <div class="table-responsive table-container">
-            <table class="table table-striped table-hover mb-0">
+            <table class="table table-striped table-hover mb-0" id="transactions-table">
                 <thead class="table-fixed-header">
                     <tr>
                         <th>
@@ -6099,7 +6355,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                                 Subcategoria
                             </a>
                         </th>
-                        <th>
+                        <th id="zona-header">
                             <a href="?{% for key, value in all_params.items %}{{ key }}={{ value }}&{% endfor %}order_by=zona&sort_direction={% if current_order == 'zona' and current_direction == 'asc' %}desc{% else %}asc{% endif %}" style="text-decoration: none; color: rgb(0, 0, 0);">
                                 Zona
                             </a>
@@ -6124,7 +6380,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                             <td>{{ transaction.fecha_transaccion|date:"Y-m-d" }}</td>
                             <td>{{ transaction.dia }}</td>
                             <td>{{ transaction.descripcion }}</td>
-                            <td>{{ transaction.categoria }}</td>
+                            <td>{{ transaction.categoria }}</td> 
                             <td>{{ transaction.subcategoria }}</td>
                             <td>{{ transaction.zona }}</td>
                             <td class="table-fixed-column">
@@ -6141,7 +6397,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="18" class="text-center py-4">
+                            <td colspan="18" class="text-center py-4" id="no-results-row">
                                 {% if request.GET.q or request.GET.compania or request.GET.numero_tarjeta or request.GET.fecha_transaccion_start or request.GET.fecha_transaccion_end or request.GET.category_filter %}
                                     Sin transacciones de tarjetas de credito que coincidan con los filtros.
                                 {% else %}
@@ -6196,6 +6452,168 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     </div>
     {% endif %}
 </div>
+
+---
+
+## Updated JavaScript for Four Filters
+
+```javascript
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Define elements
+        const categoryFilter = document.getElementById('category-filter-select');
+        const cardTypeFilter = document.getElementById('cardtype-filter-select');
+        const subcategoryFilter = document.getElementById('subcategory-filter-select');
+        const zonaFilter = document.getElementById('zona-filter-select'); // NEW
+        const tableBody = document.querySelector('#transactions-table tbody');
+        const rows = tableBody.getElementsByTagName('tr');
+        
+        // Define column indexes (0-indexed)
+        const CATEGORY_COLUMN_INDEX = 14; 
+        const CARD_TYPE_COLUMN_INDEX = 4;
+        const SUBCATEGORY_COLUMN_INDEX = 15;
+        const ZONA_COLUMN_INDEX = 16; // NEW
+
+        // 1. Populate the dropdowns with unique values from the current page's data
+        function populateFilters() {
+            const categories = new Set();
+            const cardTypes = new Set();
+            const subcategories = new Set();
+            const zonas = new Set(); // NEW
+            
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                // Skip the "No transactions" row
+                const isNoResultsRow = row.querySelector('td[colspan="18"]');
+                if (isNoResultsRow) {
+                    continue; 
+                }
+                
+                // Collect values for all four columns
+                if (row.cells[CATEGORY_COLUMN_INDEX]) {
+                    const category = row.cells[CATEGORY_COLUMN_INDEX].textContent.trim();
+                    if (category) categories.add(category);
+                }
+                if (row.cells[CARD_TYPE_COLUMN_INDEX]) {
+                    const cardType = row.cells[CARD_TYPE_COLUMN_INDEX].textContent.trim();
+                    if (cardType) cardTypes.add(cardType);
+                }
+                if (row.cells[SUBCATEGORY_COLUMN_INDEX]) {
+                    const subcategory = row.cells[SUBCATEGORY_COLUMN_INDEX].textContent.trim();
+                    if (subcategory) subcategories.add(subcategory);
+                }
+                if (row.cells[ZONA_COLUMN_INDEX]) { // NEW
+                    const zona = row.cells[ZONA_COLUMN_INDEX].textContent.trim();
+                    if (zona) zonas.add(zona);
+                }
+            }
+            
+            // Function to append options to a select element
+            const appendOptions = (selectElement, values) => {
+                // Clear previous options (keep the "Filtrar por..." placeholder)
+                while (selectElement.options.length > 1) {
+                    selectElement.remove(1); 
+                }
+
+                // Sort and append the new options
+                Array.from(values).sort().forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    selectElement.appendChild(option);
+                });
+            };
+            
+            appendOptions(categoryFilter, categories);
+            appendOptions(cardTypeFilter, cardTypes);
+            appendOptions(subcategoryFilter, subcategories);
+            appendOptions(zonaFilter, zonas); // NEW
+        }
+        
+        // 2. Function to hide/show rows based on ALL selected filters
+        function filterTable() {
+            const selectedCategory = categoryFilter.value.toLowerCase().trim();
+            const selectedCardType = cardTypeFilter.value.toLowerCase().trim();
+            const selectedSubcategory = subcategoryFilter.value.toLowerCase().trim();
+            const selectedZona = zonaFilter.value.toLowerCase().trim(); // NEW
+            
+            let visibleRowCount = 0;
+            const initialEmpty = (rows.length === 1 && rows[0].querySelector('td[colspan="18"]'));
+
+            // Remove any previously added temporary "no results" message
+            const tempNoResults = tableBody.querySelector('.js-no-results');
+            if (tempNoResults) {
+                tempNoResults.remove();
+            }
+
+            // Loop through all table rows
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const isNoResultsRow = row.querySelector('td[colspan="18"]');
+
+                if (isNoResultsRow) {
+                    // Hide the original Django "No transactions" row if any filters are active
+                    if (!initialEmpty && (selectedCategory !== "" || selectedCardType !== "" || selectedSubcategory !== "" || selectedZona !== "")) {
+                        row.style.display = "none";
+                    } else if (initialEmpty && selectedCategory === "" && selectedCardType === "" && selectedSubcategory === "" && selectedZona === "") {
+                        // Keep the original Django message if the list was empty and no filter is selected
+                        row.style.display = "";
+                    }
+                    continue;
+                }
+
+                // Get cell values
+                const categoryCell = row.cells[CATEGORY_COLUMN_INDEX];
+                const cardTypeCell = row.cells[CARD_TYPE_COLUMN_INDEX];
+                const subcategoryCell = row.cells[SUBCATEGORY_COLUMN_INDEX];
+                const zonaCell = row.cells[ZONA_COLUMN_INDEX]; // NEW
+
+                // Check Category match
+                let categoryMatch = (selectedCategory === "" || (categoryCell && categoryCell.textContent.toLowerCase().trim() === selectedCategory));
+
+                // Check Tipo Tarjeta match
+                let cardTypeMatch = (selectedCardType === "" || (cardTypeCell && cardTypeCell.textContent.toLowerCase().trim() === selectedCardType));
+                
+                // Check Subcategoría match
+                let subcategoryMatch = (selectedSubcategory === "" || (subcategoryCell && subcategoryCell.textContent.toLowerCase().trim() === selectedSubcategory));
+                
+                // Check Zona match (NEW)
+                let zonaMatch = (selectedZona === "" || (zonaCell && zonaCell.textContent.toLowerCase().trim() === selectedZona));
+
+
+                // A row must match ALL active filters to be visible
+                if (categoryMatch && cardTypeMatch && subcategoryMatch && zonaMatch) {
+                    row.style.display = ""; // Show row
+                    visibleRowCount++;
+                } else {
+                    row.style.display = "none"; // Hide row
+                }
+            }
+
+            // 3. Display a temporary "no results" message if all data rows are hidden by the filter
+            if (visibleRowCount === 0 && !initialEmpty) {
+                const tempRow = document.createElement('tr');
+                tempRow.className = 'js-no-results';
+                tempRow.innerHTML = `<td colspan="18" class="text-center py-4">
+                    Sin transacciones de tarjetas de credito que coincidan con los filtros seleccionados.
+                </td>`;
+                tableBody.appendChild(tempRow);
+            }
+        }
+
+        // Initialize: Populate the filter dropdowns
+        populateFilters();
+
+        // Attach event listeners: Apply filter when any dropdown changes
+        categoryFilter.addEventListener('change', filterTable);
+        cardTypeFilter.addEventListener('change', filterTable);
+        subcategoryFilter.addEventListener('change', filterTable);
+        zonaFilter.addEventListener('change', filterTable); // NEW
+        
+        // Apply the filter on load
+        filterTable();
+    });
+</script>
 {% endblock %}
 "@ | Out-File -FilePath "core/templates/tcs.html" -Encoding utf8
 
