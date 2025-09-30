@@ -15,7 +15,7 @@ function arpa {
 
     # Install required python3 packages
     python3 -m pip install --upgrade pip
-    python3 -m pip install django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
+    python3 -m pip install pyinstaller django whitenoise django-bootstrap-v5 xlsxwriter openpyxl pandas xlrd>=2.0.1 pdfplumber PyMuPDF msoffcrypto-tool fuzzywuzzy python-Levenshtein
 
     # Create Django project
     django-admin startproject arpa
@@ -38,6 +38,45 @@ function arpa {
     foreach ($dir in $directories) {
         New-Item -Path $dir -ItemType Directory -Force
     }
+
+# Create runserver.py with basic Django setup
+Set-Content -Path "runserver.py" -Value @" 
+import os
+import sys
+import webbrowser
+from django.core.management import execute_from_command_line
+
+# IMPORTANT: Set this to your actual project name ('arpa')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'arpa.settings')
+
+def main():
+    port = '8000'
+    server_address = f'http://127.0.0.1:{port}'
+
+    # Check if we are running in the packaged executable
+    if getattr(sys, 'frozen', False):
+        print(f"Starting Django server at {{server_address}}...")
+
+        # Automatically open the browser
+        import threading
+        def open_browser():
+             import time
+             time.sleep(1) # Give the server a moment to start
+             webbrowser.open_new(server_address)
+
+        threading.Thread(target=open_browser).start()
+
+        # Run the Django server command, disabling the reloader
+        execute_from_command_line(['manage.py', 'runserver', f'127.0.0.1:{{port}}', '--noreload'])
+
+    else:
+        # Standard development run
+        print("Running Django in development mode...")
+        execute_from_command_line(sys.argv)
+
+if __name__ == '__main__':
+    main()
+"@
 
 # Create models.py with cedula as primary key
 Set-Content -Path "core/models.py" -Value @" 
@@ -177,6 +216,8 @@ class CreditCard(models.Model):
     categoria = models.CharField(max_length=255, null=True, blank=True)
     subcategoria = models.CharField(max_length=255, null=True, blank=True)
     zona = models.CharField(max_length=255, null=True, blank=True)
+    
+    archivo_nombre = models.CharField(max_length=255, null=True, blank=True) 
 
     def __str__(self):
         return f"{self.descripcion} - {self.valor_cop} (Tarjeta: {self.numero_tarjeta})"
@@ -193,7 +234,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.urls import reverse
-from core.models import Person, Conflict, FinancialReport
+from core.models import Person, Conflict, FinancialReport, CreditCard 
 
 class ConflictForm(forms.ModelForm):
     class Meta:
@@ -445,6 +486,40 @@ class FinancialReportAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+# ... (Código anterior de admin.py)
+
+# Reemplaza la clase CreditCardAdmin con esta:
+@admin.register(CreditCard)
+class CreditCardAdmin(admin.ModelAdmin):
+    # list_display ahora usa el nombre correcto del campo: 'archivo_nombre'
+    list_display = (
+        'person_link', 'tipo_tarjeta', 'numero_tarjeta', 'fecha_transaccion', 
+        'descripcion', 'valor_cop', 'categoria', 'subcategoria', 'archivo_nombre' 
+    )
+    
+    # search_fields también debe usar el nombre correcto
+    search_fields = (
+        'person__cedula', 'person__nombre_completo', 'numero_tarjeta', 
+        'descripcion', 'categoria', 'subcategoria', 'archivo_nombre' 
+    )
+    
+    # Filtros laterales
+    list_filter = (
+        'tipo_tarjeta', 'moneda', 'categoria', 'subcategoria', 
+        'zona', 'person__compania', 'person__cargo', 'fecha_transaccion'
+    )
+    
+    # ... (El resto del código de la clase CreditCardAdmin, incluyendo person_link y raw_id_fields, es correcto)
+    
+    def person_link(self, obj):
+        link = reverse("admin:core_person_change", args=[obj.person.cedula])
+        return format_html('<a href="{}">{} ({})</a>', link, obj.person.nombre_completo, obj.person.cedula)
+
+    person_link.short_description = 'Persona'
+    person_link.admin_order_field = 'person__nombre_completo'
+
+    raw_id_fields = ('person',)
 "@
 
 # Create urls.py for core app
@@ -3623,20 +3698,55 @@ def load_cedulas_data(base_dir):
     cedulas_file = os.path.join(base_dir, "core", "src", "PersonasTC.xlsx") # Changed filename here
     if os.path.exists(cedulas_file):
         try:
-            cedulas_df = pd.read_excel(cedulas_file)
-            # Changed column check and conversion to 'NOMBRE COMPLETO' and 'CARGO'
-            if 'NOMBRE COMPLETO' in cedulas_df.columns and 'Cedula' in cedulas_df.columns and 'CARGO' in cedulas_df.columns:
-                # Apply the clean_cedula_format to the 'Cedula' column upon loading
-                cedulas_df['Cedula'] = cedulas_df['Cedula'].apply(clean_cedula_format)
-                cedulas_df['NOMBRE COMPLETO'] = cedulas_df['NOMBRE COMPLETO'].astype(str).str.title().str.strip()
+            df = pd.read_excel(cedulas_file)
+            
+            # --- START FIX: Normalizar columnas para hacer la verificación insensible a mayúsculas/minúsculas ---
+            # 1. Normalizar las columnas del DataFrame cargado a minúsculas/snake_case
+            df.columns = df.columns.str.lower().str.replace(' ', '_').str.strip()
+            
+            # 2. Definir los nombres de columna requeridos en formato normalizado
+            required_normalized = ['nombre_completo', 'cedula', 'cargo']
+            
+            # 3. Verificar la existencia de las columnas normalizadas
+            if all(col in df.columns for col in required_normalized):
+                
+                # 4. Renombrar las columnas a la capitalización específica que el resto del código espera
+                df = df.rename(columns={
+                    'nombre_completo': 'NOMBRE COMPLETO',
+                    'cedula': 'Cedula',
+                    'cargo': 'CARGO',
+                    # Aseguramos que otras columnas importantes también tengan el casing esperado
+                    'compania': 'compania',
+                    'area': 'AREA',
+                }, errors='ignore') # errors='ignore' para columnas opcionales
+                
+                # 5. Aplicar la lógica de limpieza y asignar al global cedulas_df
+                if 'Cedula' in df.columns:
+                    # Apply the clean_cedula_format to the 'Cedula' column upon loading
+                    df['Cedula'] = df['Cedula'].apply(clean_cedula_format)
+                
+                if 'NOMBRE COMPLETO' in df.columns:
+                    df['NOMBRE COMPLETO'] = df['NOMBRE COMPLETO'].astype(str).str.title().str.strip()
+                    
+                cedulas_df = df
                 cedulas_loaded = True
                 print(f"✅ Personas file '{cedulas_file}' loaded successfully.")
+            
             else:
+                # Si fallan las columnas, se mantiene el mensaje de advertencia y se evita el merge
                 print(f"⚠️ Personas file '{cedulas_file}' loaded, but expected columns ('NOMBRE COMPLETO', 'Cedula', 'CARGO') not found. Personas data will not be available.")
+                cedulas_df = None
+                cedulas_loaded = False
+            # --- END FIX ---
+            
         except Exception as e:
             print(f"⚠️ Error loading Personas file '{cedulas_file}': {e}. Personas data will not be available.")
+            cedulas_df = None
+            cedulas_loaded = False
     else:
         print(f"⚠️ Personas file '{cedulas_file}' not found. Personas data will not be available.")
+        cedulas_loaded = False
+        cedulas_df = None
 
 # --- NEW: Function to clean Cedula format (e.g., 123.0 to 123) ---
 def clean_cedula_format(value):
@@ -3672,15 +3782,18 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
     Main function to process all PDFs in the input_folder.
     This function should be called from views.py.
     """
-    global input_base_folder, output_base_folder # Use globals to assign incoming paths
+    global input_base_folder, output_base_folder 
+    global cedulas_df, cedulas_loaded 
+
     input_base_folder = input_folder
     output_base_folder = output_folder
 
-    all_resultados = [] # Combined list for all results
+    all_resultados = [] 
 
-    load_trm_data() # This now loads from the hardcoded dictionary (monthly averages)
-    load_categorias_data(base_dir) # Pass base_dir
-    load_cedulas_data(base_dir) # Pass base_dir (now loading PersonasTC.xlsx)
+    # Asegúrate de que estas funciones existan y carguen los DataFrames globales
+    load_trm_data() 
+    load_categorias_data(base_dir) 
+    load_cedulas_data(base_dir) # Falla la validación interna por casing
 
     if os.path.exists(input_base_folder):
         for archivo in sorted(os.listdir(input_base_folder)):
@@ -3713,7 +3826,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                 if not nombre:
                                     nombre_match = mc_nombre_regex.search(texto)
                                     if nombre_match:
-                                        nombre = nombre_match.group(1).strip() # Get raw name
+                                        nombre = nombre_match.group(1).strip() 
 
                                 if not ultimos_digitos:
                                     tarjeta_match = mc_tarjeta_regex.search(texto)
@@ -3731,23 +3844,21 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                     except:
                                         fecha_transaccion = None
 
-                                    # Pass the date object directly to obtener_trm
                                     tipo_cambio = obtener_trm(fecha_transaccion) if moneda_actual == "USD" else ""
 
-                                    # Determine the value for 'TRM Cierre'
                                     trm_cierre_value = formato_excel(str(tipo_cambio)) if tipo_cambio else "1"
 
                                     all_resultados.append({
                                         "Archivo": archivo,
-                                        "Tipo de Tarjeta": "Mastercard", # New column
-                                        "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
+                                        "Tipo de Tarjeta": "Mastercard", 
+                                        "Tarjetahabiente": nombre, 
                                         "Número de Tarjeta": ultimos_digitos,
                                         "Moneda": moneda_actual,
-                                        "TRM Cierre": trm_cierre_value, # Changed column name and value handling
-                                        "Valor Original": formato_excel(valor_original), # Keep this here for calculation later
+                                        "TRM Cierre": trm_cierre_value, 
+                                        "Valor Original": formato_excel(valor_original), 
                                         "Número de Autorización": autorizacion,
                                         "Fecha de Transacción": fecha_transaccion,
-                                        "Descripción": descripcion.strip(), # Ensure description is stripped for matching
+                                        "Descripción": descripcion.strip(), 
                                         "Tasa Pactada": formato_excel(tasa_pactada),
                                         "Tasa EA Facturada": formato_excel(tasa_ea),
                                         "Cargos y Abonos": formato_excel(cargo),
@@ -3757,15 +3868,15 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                     })
                                     tiene_transacciones_mc = True
 
-                            if not tiene_transacciones_mc and (nombre or ultimos_digitos): # Only add if we found a cardholder/card
+                            if not tiene_transacciones_mc and (nombre or ultimos_digitos): 
                                 all_resultados.append({
                                     "Archivo": archivo,
-                                    "Tipo de Tarjeta": "Mastercard", # New column
-                                    "Tarjetahabiente": nombre, # Keep raw name here, convert to title case later for merge
+                                    "Tipo de Tarjeta": "Mastercard", 
+                                    "Tarjetahabiente": nombre, 
                                     "Número de Tarjeta": ultimos_digitos,
                                     "Moneda": "",
-                                    "TRM Cierre": "1", # Set to 1 for no TRM
-                                    "Valor Original": "", # Empty for no transactions
+                                    "TRM Cierre": "1", 
+                                    "Valor Original": "", 
                                     "Número de Autorización": "Sin transacciones",
                                     "Fecha de Transacción": "",
                                     "Descripción": "",
@@ -3802,16 +3913,15 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
 
                                     tarjeta_match_visa = visa_pattern_tarjeta.search(line)
                                     if tarjeta_match_visa:
-                                        # Before updating card, if the previous card had no transactions, add a row
                                         if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
                                             all_resultados.append({
                                                 "Archivo": archivo,
-                                                "Tipo de Tarjeta": "Visa", # New column
+                                                "Tipo de Tarjeta": "Visa", 
                                                 "Tarjetahabiente": tarjetahabiente_visa,
                                                 "Número de Tarjeta": tarjeta_visa,
                                                 "Moneda": "",
-                                                "TRM Cierre": "1", # Set to 1 for no TRM
-                                                "Valor Original": "", # Empty for no transactions
+                                                "TRM Cierre": "1", 
+                                                "Valor Original": "", 
                                                 "Número de Autorización": "Sin transacciones",
                                                 "Fecha de Transacción": "",
                                                 "Descripción": "",
@@ -3824,7 +3934,7 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                             })
 
                                         tarjeta_visa = tarjeta_match_visa.group(1)
-                                        tiene_transacciones_visa = False # Reset for new card
+                                        tiene_transacciones_visa = False 
 
                                         if idx > 0:
                                             posible_nombre = lines[idx - 1].strip()
@@ -3835,7 +3945,6 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                                 .replace("SEÑOR:", "")
                                                 .replace("Señor:", "")
                                                 .strip()
-                                                #.title() # Not converting here, will convert df column later
                                             )
                                             if len(posible_nombre.split()) >= 2:
                                                 tarjetahabiente_visa = posible_nombre
@@ -3845,22 +3954,21 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                     if match_visa and tarjetahabiente_visa and tarjeta_visa:
                                         autorizacion, fecha_str, descripcion, valor_original, tasa_pactada, tasa_ea, cargo, saldo, cuotas = match_visa.groups()
 
-                                        # Visa specific numeric formatting
                                         valor_original_formatted = valor_original.replace(".", "").replace(",", ".")
                                         cargo_formatted = cargo.replace(".", "").replace(",", ".")
                                         saldo_formatted = saldo.replace(".", "").replace(",", ".")
 
                                         all_resultados.append({
                                             "Archivo": archivo,
-                                            "Tipo de Tarjeta": "Visa", # New column
-                                            "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
+                                            "Tipo de Tarjeta": "Visa", 
+                                            "Tarjetahabiente": tarjetahabiente_visa, 
                                             "Número de Tarjeta": tarjeta_visa,
-                                            "Moneda": "COP", # Assuming Visa are in COP as no currency explicit extraction
-                                            "TRM Cierre": "1", # Not applicable for COP, set to 1
-                                            "Valor Original": formato_excel(valor_original_formatted), # Keep this here for calculation later
+                                            "Moneda": "COP", 
+                                            "TRM Cierre": "1", 
+                                            "Valor Original": formato_excel(valor_original_formatted), 
                                             "Número de Autorización": autorizacion,
                                             "Fecha de Transacción": pd.to_datetime(fecha_str, dayfirst=True).date() if fecha_str else None,
-                                            "Descripción": descripcion.strip(), # Ensure description is stripped for matching
+                                            "Descripción": descripcion.strip(), 
                                             "Tasa Pactada": formato_excel(tasa_pactada),
                                             "Tasa EA Facturada": formato_excel(tasa_ea),
                                             "Cargos y Abonos": formato_excel(cargo_formatted),
@@ -3870,16 +3978,15 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
                                         })
                                         tiene_transacciones_visa = True
 
-                            # After processing all pages for a Visa PDF, check if no transactions were found for the last card processed
                             if tarjetahabiente_visa and tarjeta_visa and not tiene_transacciones_visa:
                                 all_resultados.append({
                                     "Archivo": archivo,
-                                    "Tipo de Tarjeta": "Visa", # New column
-                                    "Tarjetahabiente": tarjetahabiente_visa, # Keep raw name here, convert to title case later for merge
+                                    "Tipo de Tarjeta": "Visa", 
+                                    "Tarjetahabiente": tarjetahabiente_visa, 
                                     "Número de Tarjeta": tarjeta_visa,
                                     "Moneda": "",
-                                    "TRM Cierre": "1", # Set to 1 for no TRM
-                                    "Valor Original": "", # Empty for no transactions
+                                    "TRM Cierre": "1", 
+                                    "Valor Original": "", 
                                     "Número de Autorización": "Sin transacciones",
                                     "Fecha de Transacción": "",
                                     "Descripción": "",
@@ -3904,155 +4011,132 @@ def run_pdf_processing(base_dir, input_folder, output_folder):
     if all_resultados:
         df_resultado_final = pd.DataFrame(all_resultados)
 
-        # Convert 'Tarjetahabiente' to Title Case for merging with cedulas_df
-        # This column will still be named 'Tarjetahabiente' in the dataframe derived from PDFs,
-        # but we'll merge it with the 'NOMBRE COMPLETO' from PersonasTC.xlsx
+        # 1. STANDARDIZACION DE CLAVE DE UNION EN EL DATAFRAME DE RESULTADOS
         df_resultado_final['Tarjetahabiente'] = df_resultado_final['Tarjetahabiente'].astype(str).str.title().str.strip()
+        # Crear clave de unión en MAYÚSCULAS para match robusto (ya estaba bien)
+        df_resultado_final['Join_Key'] = df_resultado_final['Tarjetahabiente'].str.upper().str.strip()
 
-        # Convert 'Fecha de Transacción' to datetime objects to enable day name extraction
+
+        # Conversions and Calculations (omitted for brevity, assume correct)
         df_resultado_final['Fecha de Transacción'] = pd.to_datetime(df_resultado_final['Fecha de Transacción'], errors='coerce')
-
-        # Add the 'Día' column
-        df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') # Use 'es_ES' for Spanish day names
-
-        # Add the new 'Tar. x Per.' column
+        df_resultado_final['Día'] = df_resultado_final['Fecha de Transacción'].dt.day_name(locale='es_ES').fillna('') 
         df_resultado_final['Tar. x Per.'] = df_resultado_final.groupby('Tarjetahabiente')['Número de Tarjeta'].transform('nunique')
 
-        # --- Calculate 'Valor COP' ---
-        # Helper function to convert formatted strings to float
         def safe_float_conversion(value):
             try:
-                # Remove thousands separator ('.') and replace decimal comma (',') with dot ('.')
                 if isinstance(value, str):
                     s_value = value.replace(".", "").replace(",", ".")
                     return float(s_value)
                 return float(value)
             except (ValueError, TypeError):
-                return pd.NA # Use pandas Not Applicable for missing/invalid values
+                return pd.NA 
 
         df_resultado_final['Valor Original Num'] = df_resultado_final['Valor Original'].apply(safe_float_conversion)
         df_resultado_final['TRM Cierre Num'] = df_resultado_final['TRM Cierre'].apply(safe_float_conversion)
-
-        # Perform the multiplication, handling potential NaNs
         df_resultado_final['Valor COP'] = (df_resultado_final['Valor Original Num'] * df_resultado_final['TRM Cierre Num']).apply(lambda x: formato_excel(x) if pd.notna(x) else '')
-
-        # Drop the temporary numeric columns
         df_resultado_final = df_resultado_final.drop(columns=['Valor Original Num', 'TRM Cierre Num'])
 
 
-        # Merge with categorias_df if loaded
+        # Merge with categorias_df (omitted for brevity, assume correct)
         if categorias_loaded:
             print("Merging all results with categorias.xlsx...")
             df_resultado_final = pd.merge(df_resultado_final, categorias_df[['Descripción', 'Categoría', 'Subcategoría', 'Zona']],
                                     on='Descripción', how='left')
         else:
-            # Add empty columns if categorias.xlsx was not loaded
             df_resultado_final['Categoría'] = ''
             df_resultado_final['Subcategoría'] = ''
             df_resultado_final['Zona'] = ''
 
-        # Merge with cedulas_df (now PersonasTC.xlsx) if loaded
-        if cedulas_loaded:
-            print("Merging all results with PersonasTC.xlsx...")
-            # Ensure the 'Cedula' column in df_resultado_final is also clean before merge
-            # This is crucial for accurate merging when PersonasTC.xlsx has already been cleaned.
-            if 'Cedula' in cedulas_df.columns: # Check if 'Cedula' exists in the loaded PersonasTC.xlsx
-                # Temporarily add a 'Cedula_PDF' column to df_resultado_final to store the cleaned Cedula from PersonasTC.xlsx
-                # This ensures we get the *correctly formatted* Cedula from PersonasTC.xlsx during the merge.
-                # We'll use 'Tarjetahabiente' as the join key as that's what's derived from PDFs.
-                temp_merge_df = pd.merge(
+        # --- START: MODIFIED MERGE WITH PersonasTC.xlsx (cedulas_df) ---
+        # Verificamos si cedulas_df tiene contenido, independientemente de la bandera 'cedulas_loaded'
+        if 'cedulas_df' in globals() and cedulas_df is not None and not cedulas_df.empty:
+            
+            print("\nMerging all results with PersonasTC.xlsx (Cedula, compania, CARGO, AREA) using UPPERCASE keys and **case-insensitive column names**...")
+            
+            # 1. Prepare Personas DataFrame (cedulas_df)
+            df_personas_to_merge = cedulas_df.copy()
+            
+            # **PASO CRUCIAL:** Normalizar todos los nombres de columna a minúsculas y snake_case para hacerlos case-insensitive
+            df_personas_to_merge.columns = df_personas_to_merge.columns.str.lower().str.replace(' ', '_')
+            
+            # El nombre de la columna que contiene el nombre completo ahora es 'nombre_completo'
+            nombre_completo_col = 'nombre_completo'
+
+            if nombre_completo_col in df_personas_to_merge.columns:
+                
+                # A. Crear la clave de unión en MAYÚSCULAS
+                df_personas_to_merge['Join_Key'] = df_personas_to_merge[nombre_completo_col].astype(str).str.upper().str.strip() 
+                
+                # B. Seleccionar y renombrar las columnas usando los nombres estandarizados (minúsculas)
+                # Esto garantiza que 'cedula', 'compania', 'cargo', 'area' sean seleccionados correctamente
+                rename_map = {
+                    'cedula': 'Cedula',
+                    'compania': 'compania',
+                    'cargo': 'CARGO',
+                    'area': 'AREA'
+                }
+                
+                valid_rename_map = {k: v for k, v in rename_map.items() if k in df_personas_to_merge.columns}
+                
+                df_personas_to_merge = df_personas_to_merge.rename(columns=valid_rename_map)
+                
+                # C. Seleccionar solo las columnas necesarias para la unión
+                merge_cols_final = ['Join_Key', 'Cedula', 'compania', 'CARGO', 'AREA']
+                df_personas_to_merge = df_personas_to_merge[[col for col in merge_cols_final if col in df_personas_to_merge.columns]]
+                
+                # 2. Realizar la unión Left Merge
+                df_resultado_final = pd.merge(
                     df_resultado_final,
-                    cedulas_df[['NOMBRE COMPLETO', 'Cedula', 'CARGO', 'AREA']],
-                    left_on='Tarjetahabiente',
-                    right_on='NOMBRE COMPLETO',
-                    how='left',
-                    suffixes=('', '_from_personas') # Suffix to avoid column name conflicts
+                    df_personas_to_merge,
+                    on='Join_Key',
+                    how='left'
                 )
+                
+                # 3. Finalizar: Limpieza
+                df_resultado_final.drop(columns=['Join_Key'], errors='ignore', inplace=True) 
+                
+                for col in ['Cedula', 'compania', 'CARGO', 'AREA']:
+                    if col in df_resultado_final.columns:
+                        df_resultado_final[col].fillna('', inplace=True)
+                    else:
+                        df_resultado_final[col] = '' 
+                
+                print("✅ Merge completado. Columnas de persona (Cedula, compania, CARGO, AREA) añadidas.")
 
-                # Now, transfer the cleaned 'Cedula' from PersonasTC.xlsx to the main DataFrame
-                # If a match was found, use the 'Cedula_from_personas', otherwise, keep the existing (or empty) 'Cedula'
-                # If 'Cedula' doesn't exist in df_resultado_final yet, create it.
-                if 'Cedula' not in df_resultado_final.columns:
-                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna('') # Use Cedula from PersonasTC.xlsx
-                else:
-                    # If 'Cedula' already exists in df_resultado_final (e.g., from PDF parsing),
-                    # prioritize the one from PersonasTC.xlsx if a match was found.
-                    df_resultado_final['Cedula'] = temp_merge_df['Cedula'].fillna(df_resultado_final['Cedula'])
-
-                # Transfer 'CARGO' as well
-                if 'CARGO' not in df_resultado_final.columns:
-                    df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna('')
-                else:
-                    df_resultado_final['CARGO'] = temp_merge_df['CARGO'].fillna(df_resultado_final['CARGO'])
-
-                # Transfer 'AREA' as well
-                if 'AREA' not in df_resultado_final.columns:
-                    df_resultado_final['AREA'] = temp_merge_df['AREA'].fillna('')
-                else:
-                    df_resultado_final['AREA'] = temp_merge_df['AREA'].fillna(df_resultado_final['AREA'])
-
-                # Drop the temporary merge column if it was created
-                if 'NOMBRE COMPLETO_from_personas' in temp_merge_df.columns:
-                    temp_merge_df.drop(columns=['NOMBRE COMPLETO_from_personas'], errors='ignore', inplace=True)
-                    
             else:
-                print("WARNING: 'Cedula' column not found in PersonasTC.xlsx during merge in tcs.py.")
+                print("FATAL ERROR: 'NOMBRE COMPLETO' column not found in PersonasTC.xlsx, even after standardization. Merge aborted.")
                 df_resultado_final['Cedula'] = ''
+                df_resultado_final['compania'] = ''
                 df_resultado_final['CARGO'] = ''
                 df_resultado_final['AREA'] = ''
 
         else:
-            # Add empty columns if PersonasTC.xlsx was not loaded
+            # Bloque original si el DataFrame nunca se cargó o está vacío
             df_resultado_final['Cedula'] = ''
-            df_resultado_final['CARGO'] = '' # Changed from 'Cargo'
+            df_resultado_final['compania'] = ''
+            df_resultado_final['CARGO'] = ''
             df_resultado_final['AREA'] = ''
+            print("⚠️ Merge no realizado. Se añadieron columnas vacías.")
+        # --- END: MODIFIED MERGE WITH PersonasTC.xlsx (cedulas_df) ---
 
-        # Define all expected columns in their desired order
-        # We will dynamically build this list to ensure all columns exist before selecting them
-        # Start with the fixed order for the initial columns
+        # Define all expected columns in their desired order (omitted for brevity, assume correct)
         ordered_columns = [
-            "Cedula",
-            "Tarjetahabiente",
-            "CARGO",
-            "AREA", # Add the new AREA column here
-            "Tipo de Tarjeta",
-            "Número de Tarjeta",
-            "Tar. x Per.",
-            "Moneda",
-            "TRM Cierre",
-            "Valor Original",
-            "Valor COP",
-            "Número de Autorización",
-            "Fecha de Transacción",
-            "Día",
-            "Descripción",
-            "Categoría",
-            "Subcategoría",
-            "Zona",
-            "Tasa Pactada",
-            "Tasa EA Facturada",
-            "Cargos y Abonos",
-            "Saldo a Diferir",
-            "Cuotas",
-            "Página"
-            # "Archivo" will be added at the very end
+            "Cedula", "compania", "CARGO", "AREA", "Tarjetahabiente", "Tipo de Tarjeta",
+            "Número de Tarjeta", "Tar. x Per.", "Moneda", "TRM Cierre", "Valor Original", 
+            "Valor COP", "Número de Autorización", "Fecha de Transacción", "Día", 
+            "Descripción", "Categoría", "Subcategoría", "Zona", "Tasa Pactada", 
+            "Tasa EA Facturada", "Cargos y Abonos", "Saldo a Diferir", "Cuotas", "Página"
         ]
 
-        # Ensure "Archivo" is added to the end if it exists
         if "Archivo" in df_resultado_final.columns:
             ordered_columns.append("Archivo")
 
-        # Filter to only include columns that actually exist in the DataFrame
-        # This loop also ensures the order is maintained based on ordered_columns
         df_resultado_final = df_resultado_final[[col for col in ordered_columns if col in df_resultado_final.columns]]
 
-        # --- IMPORTANT: Apply final Cedula formatting before saving to Excel ---
-        # This ensures the 'Cedula' column in the output tcs.xlsx is consistently formatted
         if 'Cedula' in df_resultado_final.columns:
             df_resultado_final['Cedula'] = df_resultado_final['Cedula'].apply(clean_cedula_format)
 
 
-        # Change the filename to a static name instead of a timestamp
         archivo_salida_unificado = "tcs.xlsx"
         ruta_salida_unificado = os.path.join(output_base_folder, archivo_salida_unificado)
         df_resultado_final.to_excel(ruta_salida_unificado, index=False)
@@ -8450,9 +8534,27 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 
     python3 manage.py collectstatic --noinput
 
-    # Start the server
+    #python3 -m pip uninstall pathlib
+
+    pyinstaller runserver.py `
+        --name "ARPA_Web_App" `
+        --onedir `
+        --collect-all "django" `
+        --collect-all "arpa" `
+        --collect-all "python" `
+        --add-data "arpa:arpa" `
+        --add-data "core/templates:core/templates" `
+        --add-data "core/static:core/static" `
+        --add-data "staticfiles:staticfiles" `
+        --add-data "db.sqlite3:db.sqlite3" `
+        --exclude-module psycopg2
+    
+    Write-Host "✅ PyInstaller build complete. Check the 'dist' folder." -ForegroundColor $GREEN
+
+        # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
     python3 manage.py runserver
+
 }
 
 arpa
