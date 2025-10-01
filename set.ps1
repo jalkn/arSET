@@ -536,7 +536,7 @@ from .views import (main, register_superuser, ImportView, person_list,
                    import_conflicts, conflict_list, import_persons,
                    import_finances, person_details, financial_report_list,
                    export_persons_excel, alerts_list, save_comment, delete_comment, import_tcs, import_categorias,
-                   tcs_list, import_personas_tc) 
+                   tcs_list, import_personas_tc, export_financial_reports_excel, export_credit_card_excel) 
 
 def register_superuser(request):
     if request.method == 'POST':
@@ -590,6 +590,8 @@ urlpatterns = [
     path('persons/<str:cedula>/delete_comment/<int:comment_index>/', delete_comment, name='delete_comment'),
     path('tcs/', tcs_list, name='tcs_list'), 
     path('conflicts/', conflict_list, name='conflict_list'),
+    path('financial_reports/export/excel/', export_financial_reports_excel, name='export_financial_reports_excel'), 
+    path('tcs/export/excel/', export_credit_card_excel, name='export_credit_card_excel'),
     
 ]
 "@
@@ -617,6 +619,8 @@ import re
 from django.views.decorators.http import require_POST
 from django.shortcuts import get_object_or_404, redirect
 from . import tcs 
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows 
 
 @login_required
 @require_POST
@@ -2172,6 +2176,141 @@ def import_categorias(request):
         else:
             messages.error(request, 'No se seleccionó ningún archivo de categorías.', extra_tags='import_categorias')
     return redirect('import')
+
+
+@login_required
+def export_financial_reports_excel(request):
+    """
+    Exports the filtered list of FinancialReport objects to an Excel file.
+    """
+    
+    # --- Start Filter Logic (Use the same logic as financial_report_list) ---
+    queryset = FinancialReport.objects.all()
+    # Apply filtering based on request.GET if necessary...
+    # --- End Filter Logic ---
+
+    # 1. Convert the QuerySet to a Pandas DataFrame
+    # Use list(queryset.values()) to get a list of dictionaries with field values
+    data = list(queryset.values()) 
+    df = pd.DataFrame(data)
+
+    # 2. ⚡️ FIX: Remove Timezone Information from Datetime Columns ⚡️
+    # Iterate over columns and convert timezone-aware columns to timezone-naive
+    for col in df.columns:
+        # Check if the column is of datetime type and if it has timezone information
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            # Use 'dt.tz_localize(None)' to remove the timezone information
+            # We assume the data is already in the desired local time zone due to Django settings.
+            df[col] = df[col].dt.tz_localize(None)
+
+    # 3. Prepare Excel workbook and response headers
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    # Set filename
+    response['Content-Disposition'] = 'attachment; filename=reporte_bienes_y_rentas.xlsx'
+
+    # 4. Create a workbook and sheet
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Bienes y Rentas"
+
+    # 5. Write the DataFrame to the worksheet
+    for row in dataframe_to_rows(df, header=True, index=False):
+        worksheet.append(row)
+    
+    # 6. Save the workbook to the response
+    workbook.save(response)
+    
+    return response
+
+@login_required
+def export_credit_card_excel(request):
+    """
+    Exports the filtered list of CreditCard (TC) objects to an Excel file.
+    Handles timezone conversion for Excel compatibility.
+    """
+    
+    # --- Start Filter Logic (Use the same logic as your tcs_list view, if applicable) ---
+    # Fetch data including foreign key relationship data (e.g., person details)
+    # FIX: Removed .select_related('categoria') as 'categoria' and 'subcategoria' are direct fields.
+    queryset = CreditCard.objects.all().select_related('person')
+    
+    # The filter logic in tcs.html seems to be client-side (JS), so we'll export all
+    # or apply server-side filters if they exist in request.GET (e.g., search query 'q')
+    q = request.GET.get('q')
+    if q:
+        # Example server-side filtering for credit cards:
+        # FIX: Changed 'comercio' to the correct field name 'descripcion' in Q filter
+        queryset = queryset.filter(
+            Q(descripcion__icontains=q) | 
+            Q(person__cedula__icontains=q) |
+            Q(person__nombre_completo__icontains=q)
+        )
+    # --- End Filter Logic ---
+
+    # Prepare data for DataFrame, explicitly joining related fields
+    # FIX: Corrected field names based on Django model choices.
+    data = queryset.values(
+        'id',
+        'person__cedula',
+        'person__nombre_completo',
+        'fecha_transaccion', 
+        'tipo_tarjeta',
+        'descripcion',          # Corrected from 'comercio'
+        'moneda',               
+        'valor_original',       
+        'valor_cop',            
+        'categoria',            # Corrected from 'categoria__categoria' to direct field
+        'subcategoria',         # Corrected from 'categoria__subcategoria' to direct field
+        'zona',                 # The field 'zona' is available directly on CreditCard model
+        'person__revisar'       # FIX: Access 'revisar' through the 'person' relationship
+    )
+    df = pd.DataFrame(list(data))
+
+    # Rename columns to be more readable in the Excel file. The order must match queryset.values()
+    df.columns = [
+        'ID',
+        'Cédula',
+        'Nombre Completo',
+        'Fecha Transacción', 
+        'Tipo Tarjeta',
+        'Descripción (Comercio)',  # Renamed for clarity
+        'Moneda',
+        'Valor Original',
+        'Valor COP',
+        'Categoría',
+        'Subcategoría',
+        'Zona',
+        'Revisar' # The column name remains the same, but the source field changed
+    ]
+
+    # FIX: Remove Timezone Information from Datetime Columns
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            # Use 'dt.tz_localize(None)' to remove the timezone information
+            df[col] = df[col].dt.tz_localize(None)
+
+    # Prepare Excel workbook and response headers
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    # Set filename
+    response['Content-Disposition'] = 'attachment; filename=reporte_tarjetas_credito.xlsx'
+
+    # Create a workbook and sheet
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Transacciones TC"
+
+    # Write the DataFrame to the worksheet
+    for row in dataframe_to_rows(df, header=True, index=False):
+        worksheet.append(row)
+    
+    # Save the workbook to the response
+    workbook.save(response)
+    
+    return response
 "@
 
 # Create core/conflicts.py
@@ -6291,6 +6430,9 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
     <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
         <i class="fas fa-database"></i> 
     </a>
+    <a href="{% url 'export_credit_card_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
+        <i class="fas fa-file-excel"></i>
+    </a>
     <form method="post" action="{% url 'logout' %}" class="d-inline">
         {% csrf_token %}
         <button type="submit" class="btn btn-custom-primary" title="Cerrar sesion">
@@ -6734,7 +6876,7 @@ $jsContent | Out-File -FilePath "core/static/js/freeze_columns.js" -Encoding utf
 <a href="{% url 'import' %}" class="btn btn-custom-primary" title="Importar">
     <i class="fas fa-database"></i> 
 </a>
-<a href="{% url 'export_persons_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
+<a href="{% url 'export_financial_reports_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-custom-primary" title="Exportar a Excel">
     <i class="fas fa-file-excel"></i>
 </a>
 <form method="post" action="{% url 'logout' %}" class="d-inline">
@@ -8536,25 +8678,164 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 
     #python3 -m pip uninstall pathlib
 
-    pyinstaller runserver.py `
-        --name "ARPA_Web_App" `
-        --onedir `
-        --collect-all "django" `
-        --collect-all "arpa" `
-        --collect-all "python" `
-        --add-data "arpa:arpa" `
-        --add-data "core/templates:core/templates" `
-        --add-data "core/static:core/static" `
-        --add-data "staticfiles:staticfiles" `
-        --add-data "db.sqlite3:db.sqlite3" `
-        --exclude-module psycopg2
+    #pyinstaller runserver.py `
+    #    --name "ARPA_Web_App" `
+    #    --onedir `
+    #    --collect-all "django" `
+    #    --collect-all "arpa" `
+    #    --collect-all "python" `
+    #    --add-data "arpa:arpa" `
+    #    --add-data "core/templates:core/templates" `
+    #    --add-data "core/static:core/static" `
+    #    --add-data "staticfiles:staticfiles" `
+    #    --add-data "db.sqlite3:db.sqlite3" `
+    #    --exclude-module psycopg2
     
-    Write-Host "✅ PyInstaller build complete. Check the 'dist' folder." -ForegroundColor $GREEN
+    #Write-Host "✅ PyInstaller build complete. Check the 'dist' folder." -ForegroundColor $GREEN
 
-        # Start the server
+# Create runserver.py with basic Django setup
+Set-Content -Path "Dockerfile" -Value @" 
+# --- STAGE 1: BUILDER & PRODUCTION DEPENDENCIES ---
+FROM python:3.11-slim as builder
+
+# Install system dependencies needed for libraries like PyMuPDF and for building Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libopenjp2-7 \
+    libtiff5 \
+    libpng-dev \
+    zlib1g-dev \
+    # Clean up APT lists to keep the image small
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables
+ENV PYTHONUNBUFFERED 1
+ENV DJANGO_SETTINGS_MODULE arpa.settings
+# Cloud Run typically expects port 8080
+ENV PORT 8080
+
+# Create and set working directory
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy project code
+COPY . .
+
+# Collect static files (needed for Whitenoise to serve them)
+RUN python3 manage.py collectstatic --no-input
+
+# --- STAGE 2: FINAL MINIMAL IMAGE ---
+# Use a highly minimal runtime image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy runtime files from the builder stage
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /app /app
+
+# Cloud Run exposes port 8080
+EXPOSE 8080
+
+# Start the application using Gunicorn, binding to 0.0.0.0 and the PORT environment variable
+CMD ["gunicorn", "arpa.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120"]
+"@
+
+# Create runserver.py with basic Django setup
+Set-Content -Path "requirements.txt" -Value @" 
+django
+whitenoise
+django-bootstrap-v5
+xlsxwriter
+openpyxl
+pandas
+xlrd>=2.0.1
+pdfplumber
+PyMuPDF
+msoffcrypto-tool
+fuzzywuzzy
+python-Levenshtein
+gunicorn 
+"@
+
+    #docker build -t arpa-web-app .
+    #Write-Host "✅ Docker image build complete. You can run the container using:" -ForegroundColor $GREEN
+    
+    #docker run -d -p 8000:8000 arpa-web-app
+    #Write-Host "   docker run -p 8000:8000 arpa-web-app"
+
+
+    # Start the server
     Write-Host "🚀 Starting Django development server..." -ForegroundColor $GREEN
     python3 manage.py runserver
 
 }
 
+function gCloud {
+
+    # --- Configuration ---
+    $PROJECT_ID = "arpa-473200"  # <<< REPLACE THIS
+    $SERVICE_NAME = "arpa-web-app"
+    $REGION = "us-central1" # Choose a region close to your users
+
+    Write-Host "🔐 Authenticating to Google Cloud..." -ForegroundColor Yellow
+    # Authenticate gcloud (if not already done)
+    gcloud auth configure-docker
+
+    Write-Host "🔧 Setting GCP Project and Region..." -ForegroundColor Yellow
+    gcloud config set project $PROJECT_ID
+    gcloud config set run/region $REGION
+
+    # --- Cloud Build and Push Image ---
+    $IMAGE_NAME = "gcr.io/$PROJECT_ID/$SERVICE_NAME"
+
+    Write-Host "📦 Building and Pushing Docker Image to Google Container Registry (GCR)..." -ForegroundColor Yellow
+    # Use gcloud build to build the Dockerfile and push it directly to GCR
+    # Cloud Build handles all system dependencies (like binutils) reliably.
+    gcloud builds submit --tag $IMAGE_NAME --quiet
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "❌ Cloud Build failed. Exiting deployment." -ForegroundColor Red
+        return
+    }
+
+# --- Deploy to Cloud Run ---
+    Write-Host "🚀 Deploying image to Google Cloud Run..." -ForegroundColor Yellow
+
+    # Arguments for gcloud run deploy command, using an array for robust parsing
+    $DeployArgs = @(
+        $SERVICE_NAME
+        "--image"
+        $IMAGE_NAME
+        "--platform"
+        "managed"
+        "--region"
+        $REGION
+        "--allow-unauthenticated"
+        "--port"
+        "8080"
+        "--memory"
+        "1Gi"
+        "--quiet"
+    )
+
+    # Execute the gcloud command using the argument array
+    gcloud run deploy @DeployArgs
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "❌ Cloud Run deployment failed. Exiting deployment." -ForegroundColor Red
+        return
+    }
+
+    # --- Final Output ---
+    Write-Host "✅ Deployment Complete!" -ForegroundColor Green
+    Write-Host "Service URL:" -ForegroundColor Green
+    gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)'
+
+}
+
 arpa
+#gCloud
